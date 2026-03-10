@@ -36,6 +36,9 @@ import android.util.AttributeSet;
 import android.util.Log;
 import android.widget.RelativeLayout;
 
+import com.github.barteksc.pdfviewer.editor.PdfEditElement;
+import com.github.barteksc.pdfviewer.editor.PdfSignatureEdit;
+import com.github.barteksc.pdfviewer.editor.PdfTextEdit;
 import com.github.barteksc.pdfviewer.exception.PageRenderingException;
 import com.github.barteksc.pdfviewer.link.DefaultLinkHandler;
 import com.github.barteksc.pdfviewer.link.LinkHandler;
@@ -63,14 +66,23 @@ import com.github.barteksc.pdfviewer.util.MathUtils;
 import com.github.barteksc.pdfviewer.util.SnapEdge;
 import com.github.barteksc.pdfviewer.util.Util;
 import com.shockwave.pdfium.PdfDocument;
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader;
+import com.tom_roush.pdfbox.pdmodel.PDDocument;
+import com.tom_roush.pdfbox.pdmodel.PDPage;
+import com.tom_roush.pdfbox.pdmodel.PDPageContentStream;
+import com.tom_roush.pdfbox.pdmodel.common.PDRectangle;
+import com.tom_roush.pdfbox.pdmodel.font.PDType1Font;
+import com.tom_roush.pdfbox.pdmodel.graphics.image.LosslessFactory;
 import com.shockwave.pdfium.PdfiumCore;
 import com.shockwave.pdfium.util.Size;
 import com.shockwave.pdfium.util.SizeF;
 
 import java.io.File;
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 
 /**
@@ -240,6 +252,10 @@ public class PDFView extends RelativeLayout {
 
     /** Holds last used Configurator that should be loaded when view has size */
     private Configurator waitingDocumentConfigurator;
+
+    private final List<PdfEditElement> editElements = new ArrayList<>();
+    private DocumentSource currentDocumentSource;
+    private String currentDocumentPassword;
 
     /** Construct the initial view */
     public PDFView(Context context, AttributeSet set) {
@@ -622,14 +638,15 @@ public class PDFView extends RelativeLayout {
         // Draws thumbnails
         for (PagePart part : cacheManager.getThumbnails()) {
             drawPart(canvas, part);
-
+            if (!onDrawPagesNums.contains(part.getPage())) {
+                onDrawPagesNums.add(part.getPage());
+            }
         }
 
         // Draws parts
         for (PagePart part : cacheManager.getPageParts()) {
             drawPart(canvas, part);
-            if (callbacks.getOnDrawAll() != null
-                    && !onDrawPagesNums.contains(part.getPage())) {
+            if (!onDrawPagesNums.contains(part.getPage())) {
                 onDrawPagesNums.add(part.getPage());
             }
         }
@@ -637,9 +654,10 @@ public class PDFView extends RelativeLayout {
         for (Integer page : onDrawPagesNums) {
             drawWithListener(canvas, page, callbacks.getOnDrawAll());
         }
-        onDrawPagesNums.clear();
 
         drawWithListener(canvas, currentPage, callbacks.getOnDraw());
+        drawEditElements(canvas, onDrawPagesNums);
+        onDrawPagesNums.clear();
 
         // Restores the canvas position
         canvas.translate(-currentXOffset, -currentYOffset);
@@ -1085,6 +1103,48 @@ public class PDFView extends RelativeLayout {
         return pdfFile.getPageSize(pageIndex);
     }
 
+    public void addEditElement(PdfEditElement editElement) {
+        editElements.add(editElement);
+        invalidate();
+    }
+
+    public void removeEditElement(PdfEditElement editElement) {
+        editElements.remove(editElement);
+        invalidate();
+    }
+
+    public void clearEditElements() {
+        editElements.clear();
+        invalidate();
+    }
+
+    public List<PdfEditElement> getEditElements() {
+        return Collections.unmodifiableList(new ArrayList<>(editElements));
+    }
+
+    public void exportEditedPdf(File destination) throws IOException {
+        if (currentDocumentSource == null) {
+            throw new IllegalStateException("Document source is unavailable. Load a PDF before exporting edits.");
+        }
+        File parent = destination.getParentFile();
+        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+            throw new IOException("Unable to create export directory");
+        }
+        PDFBoxResourceLoader.init(getContext().getApplicationContext());
+        File sourceFile = currentDocumentSource.createTempFile(getContext());
+        PDDocument document = currentDocumentPassword == null
+                ? PDDocument.load(sourceFile)
+                : PDDocument.load(sourceFile, currentDocumentPassword);
+        try {
+            for (PdfEditElement editElement : editElements) {
+                applyEditElement(document, editElement);
+            }
+            document.save(destination);
+        } finally {
+            document.close();
+        }
+    }
+
     public int getCurrentPage() {
         return currentPage;
     }
@@ -1131,6 +1191,91 @@ public class PDFView extends RelativeLayout {
 
     public void zoomWithAnimation(float scale) {
         animationManager.startZoomAnimation(getWidth() / 2, getHeight() / 2, zoom, scale);
+    }
+
+    private void drawEditElements(Canvas canvas, List<Integer> visiblePages) {
+        if (pdfFile == null || editElements.isEmpty()) {
+            return;
+        }
+        LinkedHashSet<Integer> pages = new LinkedHashSet<>(visiblePages);
+        pages.add(currentPage);
+        for (Integer page : pages) {
+            drawEditElementsForPage(canvas, page);
+        }
+    }
+
+    private void drawEditElementsForPage(Canvas canvas, int page) {
+        SizeF size = pdfFile.getPageSize(page);
+        if (size == null) {
+            return;
+        }
+        float translateX = 0;
+        float translateY = 0;
+        if (swipeVertical) {
+            translateY = pdfFile.getPageOffset(page, zoom);
+            translateX = toCurrentScale(pdfFile.getMaxPageWidth() - size.getWidth()) / 2;
+        } else {
+            translateX = pdfFile.getPageOffset(page, zoom);
+            translateY = toCurrentScale(pdfFile.getMaxPageHeight() - size.getHeight()) / 2;
+        }
+        canvas.translate(translateX, translateY);
+        RectF pageBounds = new RectF(0, 0, toCurrentScale(size.getWidth()), toCurrentScale(size.getHeight()));
+        for (PdfEditElement editElement : editElements) {
+            if (editElement.getPage() != page) {
+                continue;
+            }
+            RectF targetBounds = resolveBounds(editElement.getBounds(), pageBounds.width(), pageBounds.height());
+            editElement.draw(canvas, targetBounds, size.getWidth(), size.getHeight(), paint);
+        }
+        canvas.translate(-translateX, -translateY);
+    }
+
+    private RectF resolveBounds(RectF normalizedBounds, float width, float height) {
+        return new RectF(
+                normalizedBounds.left * width,
+                normalizedBounds.top * height,
+                normalizedBounds.right * width,
+                normalizedBounds.bottom * height
+        );
+    }
+
+    private void applyEditElement(PDDocument document, PdfEditElement editElement) throws IOException {
+        if (editElement.getPage() < 0 || editElement.getPage() >= document.getNumberOfPages()) {
+            return;
+        }
+        PDPage page = document.getPage(editElement.getPage());
+        PDRectangle mediaBox = page.getMediaBox();
+        RectF bounds = resolveBounds(editElement.getBounds(), mediaBox.getWidth(), mediaBox.getHeight());
+        if (editElement instanceof PdfTextEdit) {
+            PdfTextEdit textEdit = (PdfTextEdit) editElement;
+            try (PDPageContentStream contentStream = new PDPageContentStream(document, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
+                contentStream.beginText();
+                contentStream.setFont(PDType1Font.HELVETICA, textEdit.getTextSizeSp());
+                contentStream.setNonStrokingColor(Color.red(textEdit.getColor()), Color.green(textEdit.getColor()), Color.blue(textEdit.getColor()));
+                float x = mediaBox.getLowerLeftX() + bounds.left;
+                float y = mediaBox.getUpperRightY() - bounds.top - textEdit.getTextSizeSp();
+                contentStream.newLineAtOffset(x, y);
+                contentStream.showText(textEdit.getText());
+                contentStream.endText();
+            }
+        } else if (editElement instanceof PdfSignatureEdit) {
+            PdfSignatureEdit signatureEdit = (PdfSignatureEdit) editElement;
+            if (signatureEdit.getSignatureBitmap() == null || signatureEdit.getSignatureBitmap().isRecycled()) {
+                return;
+            }
+            try (PDPageContentStream contentStream = new PDPageContentStream(document, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
+                float x = mediaBox.getLowerLeftX() + bounds.left;
+                float y = mediaBox.getUpperRightY() - bounds.bottom;
+                float width = bounds.width();
+                float height = bounds.height();
+                contentStream.drawImage(LosslessFactory.createFromImage(document, signatureEdit.getSignatureBitmap()), x, y, width, height);
+                if (signatureEdit.isDrawBorder()) {
+                    contentStream.setStrokingColor(Color.red(signatureEdit.getBorderColor()), Color.green(signatureEdit.getBorderColor()), Color.blue(signatureEdit.getBorderColor()));
+                    contentStream.addRect(x, y, width, height);
+                    contentStream.stroke();
+                }
+            }
+        }
     }
 
     private void setScrollHandle(ScrollHandle scrollHandle) {
@@ -1527,6 +1672,9 @@ public class PDFView extends RelativeLayout {
                 return;
             }
             PDFView.this.recycle();
+            PDFView.this.currentDocumentSource = documentSource;
+            PDFView.this.currentDocumentPassword = password;
+            PDFView.this.clearEditElements();
             PDFView.this.callbacks.setOnLoadComplete(onLoadCompleteListener);
             PDFView.this.callbacks.setOnError(onErrorListener);
             PDFView.this.callbacks.setOnDraw(onDrawListener);

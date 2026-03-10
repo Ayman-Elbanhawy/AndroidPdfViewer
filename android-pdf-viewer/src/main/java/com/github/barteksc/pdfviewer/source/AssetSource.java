@@ -40,4 +40,9 @@ public class AssetSource implements DocumentSource {
         ParcelFileDescriptor pfd = ParcelFileDescriptor.open(f, ParcelFileDescriptor.MODE_READ_ONLY);
         return core.newDocument(pfd, password);
     }
+
+    @Override
+    public File createTempFile(Context context) throws IOException {
+        return FileUtils.fileFromAsset(context, assetName);
+    }
 }

@@ -38,6 +38,29 @@ public class FileUtils {
         return outFile;
     }
 
+    public static File fileFromBytes(Context context, byte[] data, String prefix, String suffix) throws IOException {
+        File outFile = createTempFile(context, prefix, suffix);
+        OutputStream outputStream = null;
+        try {
+            outputStream = new FileOutputStream(outFile);
+            outputStream.write(data);
+            outputStream.flush();
+            return outFile;
+        } finally {
+            if (outputStream != null) {
+                outputStream.close();
+            }
+        }
+    }
+
+    public static File createTempFile(Context context, String prefix, String suffix) throws IOException {
+        File cacheDir = new File(context.getCacheDir(), "pdfview-editing");
+        if (!cacheDir.exists() && !cacheDir.mkdirs()) {
+            throw new IOException("Unable to create cache directory");
+        }
+        return File.createTempFile(prefix, suffix, cacheDir);
+    }
+
     public static void copy(InputStream inputStream, File output) throws IOException {
         OutputStream outputStream = null;
         try {

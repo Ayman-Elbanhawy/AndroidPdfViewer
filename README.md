@@ -270,3 +270,34 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ```
+## PDF editing and signatures
+Version 3.2 now includes a lightweight editing API for adding text edits and bitmap signatures directly on top of a loaded document, then exporting the result as a new PDF. The sample app exposes this flow with `Add note`, `Add signature`, and `Save PDF` actions.
+
+```java
+PDFView pdfView = findViewById(R.id.pdfView);
+pdfView.fromUri(uri)
+    .defaultPage(0)
+    .enableAnnotationRendering(true)
+    .load();
+
+pdfView.addEditElement(new PdfTextEdit(
+    0,
+    new RectF(0.08f, 0.10f, 0.70f, 0.16f),
+    "Edited with AndroidPdfViewer",
+    Color.RED,
+    18f
+));
+
+pdfView.addEditElement(new PdfSignatureEdit(
+    0,
+    new RectF(0.58f, 0.78f, 0.92f, 0.88f),
+    signatureBitmap,
+    true,
+    Color.BLUE
+));
+
+File output = new File(getExternalFilesDir(null), "edited.pdf");
+pdfView.exportEditedPdf(output);
+```
+
+Coordinates are normalized per page, so `RectF(0f, 0f, 1f, 1f)` maps to the full page. Export preserves the original input PDF and writes the edited result to a new file.

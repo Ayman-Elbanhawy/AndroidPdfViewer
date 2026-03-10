@@ -61,5 +61,7 @@ android {
 dependencies {
     implementation 'androidx.core:core:1.17.0'
     api 'io.github.oothp:pdfium-android:1.9.5-beta01'
+    implementation 'com.tom-roush:pdfbox-android:2.0.27.0'
 }
+
 

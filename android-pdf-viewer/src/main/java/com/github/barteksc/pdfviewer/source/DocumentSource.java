@@ -20,8 +20,11 @@ import android.content.Context;
 import com.shockwave.pdfium.PdfDocument;
 import com.shockwave.pdfium.PdfiumCore;
 
+import java.io.File;
 import java.io.IOException;
 
 public interface DocumentSource {
     PdfDocument createDocument(Context context, PdfiumCore core, String password) throws IOException;
+
+    File createTempFile(Context context) throws IOException;
 }

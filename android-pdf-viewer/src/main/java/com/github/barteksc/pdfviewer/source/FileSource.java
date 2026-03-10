@@ -26,7 +26,7 @@ import java.io.IOException;
 
 public class FileSource implements DocumentSource {
 
-    private File file;
+    private final File file;
 
     public FileSource(File file) {
         this.file = file;
@@ -36,5 +36,10 @@ public class FileSource implements DocumentSource {
     public PdfDocument createDocument(Context context, PdfiumCore core, String password) throws IOException {
         ParcelFileDescriptor pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY);
         return core.newDocument(pfd, password);
+    }
+
+    @Override
+    public File createTempFile(Context context) {
+        return file;
     }
 }

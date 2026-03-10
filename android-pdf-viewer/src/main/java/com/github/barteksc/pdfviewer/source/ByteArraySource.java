@@ -17,14 +17,16 @@ package com.github.barteksc.pdfviewer.source;
 
 import android.content.Context;
 
+import com.github.barteksc.pdfviewer.util.FileUtils;
 import com.shockwave.pdfium.PdfDocument;
 import com.shockwave.pdfium.PdfiumCore;
 
+import java.io.File;
 import java.io.IOException;
 
 public class ByteArraySource implements DocumentSource {
 
-    private byte[] data;
+    private final byte[] data;
 
     public ByteArraySource(byte[] data) {
         this.data = data;
@@ -33,5 +35,10 @@ public class ByteArraySource implements DocumentSource {
     @Override
     public PdfDocument createDocument(Context context, PdfiumCore core, String password) throws IOException {
         return core.newDocument(data, password);
+    }
+
+    @Override
+    public File createTempFile(Context context) throws IOException {
+        return FileUtils.fileFromBytes(context, data, "bytes-source", ".pdf");
     }
 }

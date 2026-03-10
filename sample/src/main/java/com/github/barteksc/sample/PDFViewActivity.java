@@ -3,21 +3,27 @@ package com.github.barteksc.sample;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.RectF;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
+import android.widget.Button;
+import android.widget.Toast;
+
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
-import android.util.Log;
-import android.widget.Toast;
 
 import com.github.barteksc.pdfviewer.PDFView;
+import com.github.barteksc.pdfviewer.editor.PdfSignatureEdit;
+import com.github.barteksc.pdfviewer.editor.PdfTextEdit;
 import com.github.barteksc.pdfviewer.listener.OnLoadCompleteListener;
 import com.github.barteksc.pdfviewer.listener.OnPageChangeListener;
 import com.github.barteksc.pdfviewer.listener.OnPageErrorListener;
@@ -25,7 +31,14 @@ import com.github.barteksc.pdfviewer.scroll.DefaultScrollHandle;
 import com.github.barteksc.pdfviewer.util.FitPolicy;
 import com.shockwave.pdfium.PdfDocument;
 
+import android.database.Cursor;
+import android.util.Log;
+
+import java.io.File;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 
 public class PDFViewActivity extends AppCompatActivity implements
         OnPageChangeListener, OnLoadCompleteListener, OnPageErrorListener {
@@ -45,6 +58,7 @@ public class PDFViewActivity extends AppCompatActivity implements
             registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
                 if (result.getResultCode() == RESULT_OK && result.getData() != null) {
                     uri = result.getData().getData();
+                    pageNumber = 0;
                     displayFromUri(uri);
                 }
             });
@@ -56,6 +70,21 @@ public class PDFViewActivity extends AppCompatActivity implements
 
         pdfView = findViewById(R.id.pdfView);
         pdfView.setBackgroundColor(Color.LTGRAY);
+
+        Button openButton = findViewById(R.id.openButton);
+        Button noteButton = findViewById(R.id.noteButton);
+        Button signatureButton = findViewById(R.id.signatureButton);
+        Button clearButton = findViewById(R.id.clearButton);
+        Button saveButton = findViewById(R.id.saveButton);
+
+        openButton.setOnClickListener(v -> pickFile());
+        noteButton.setOnClickListener(v -> addSampleTextEdit());
+        signatureButton.setOnClickListener(v -> addSampleSignature());
+        clearButton.setOnClickListener(v -> {
+            pdfView.clearEditElements();
+            Toast.makeText(this, R.string.toast_edits_cleared, Toast.LENGTH_SHORT).show();
+        });
+        saveButton.setOnClickListener(v -> saveEditedPdf());
 
         if (uri != null) {
             displayFromUri(uri);
@@ -85,7 +114,16 @@ public class PDFViewActivity extends AppCompatActivity implements
 
     private void displayFromAsset(String assetFileName) {
         pdfFileName = assetFileName;
-        pdfView.fromAsset(assetFileName)
+        configure(pdfView.fromAsset(assetFileName));
+    }
+
+    private void displayFromUri(Uri uri) {
+        pdfFileName = getFileName(uri);
+        configure(pdfView.fromUri(uri));
+    }
+
+    private void configure(PDFView.Configurator configurator) {
+        configurator
                 .defaultPage(pageNumber)
                 .onPageChange(this)
                 .enableAnnotationRendering(true)
@@ -97,17 +135,69 @@ public class PDFViewActivity extends AppCompatActivity implements
                 .load();
     }
 
-    private void displayFromUri(Uri uri) {
-        pdfFileName = getFileName(uri);
-        pdfView.fromUri(uri)
-                .defaultPage(pageNumber)
-                .onPageChange(this)
-                .enableAnnotationRendering(true)
-                .onLoad(this)
-                .scrollHandle(new DefaultScrollHandle(this))
-                .spacing(10)
-                .onPageError(this)
-                .load();
+    private void addSampleTextEdit() {
+        pdfView.addEditElement(new PdfTextEdit(
+                pageNumber,
+                new RectF(0.08f, 0.10f, 0.70f, 0.16f),
+                getString(R.string.sample_note_text),
+                Color.parseColor("#C62828"),
+                18f
+        ));
+        Toast.makeText(this, R.string.toast_note_added, Toast.LENGTH_SHORT).show();
+    }
+
+    private void addSampleSignature() {
+        Bitmap signature = createSignatureBitmap("Ayman Elbanhawy");
+        pdfView.addEditElement(new PdfSignatureEdit(
+                pageNumber,
+                new RectF(0.58f, 0.78f, 0.92f, 0.88f),
+                signature,
+                true,
+                Color.parseColor("#0D47A1")
+        ));
+        Toast.makeText(this, R.string.toast_signature_added, Toast.LENGTH_SHORT).show();
+    }
+
+    private Bitmap createSignatureBitmap(String signerName) {
+        Bitmap bitmap = Bitmap.createBitmap(800, 220, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        canvas.drawColor(Color.TRANSPARENT);
+
+        Paint signaturePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        signaturePaint.setColor(Color.parseColor("#0D47A1"));
+        signaturePaint.setTextSize(86f);
+        signaturePaint.setFakeBoldText(true);
+        canvas.drawText(signerName, 24f, 120f, signaturePaint);
+
+        Paint underlinePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        underlinePaint.setColor(Color.parseColor("#0D47A1"));
+        underlinePaint.setStrokeWidth(5f);
+        canvas.drawLine(24f, 160f, 700f, 160f, underlinePaint);
+
+        Paint captionPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        captionPaint.setColor(Color.DKGRAY);
+        captionPaint.setTextSize(30f);
+        canvas.drawText(getString(R.string.signature_caption), 24f, 204f, captionPaint);
+        return bitmap;
+    }
+
+    private void saveEditedPdf() {
+        try {
+            File exportsDir = new File(getExternalFilesDir(null), "edited-pdfs");
+            if (!exportsDir.exists() && !exportsDir.mkdirs()) {
+                throw new IllegalStateException("Unable to create export folder");
+            }
+            String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
+            File output = new File(exportsDir, "edited_" + timestamp + ".pdf");
+            pdfView.exportEditedPdf(output);
+            uri = Uri.fromFile(output);
+            pageNumber = 0;
+            displayFromUri(uri);
+            Toast.makeText(this, getString(R.string.toast_saved, output.getAbsolutePath()), Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to export edited PDF", e);
+            Toast.makeText(this, getString(R.string.toast_save_failed, e.getMessage()), Toast.LENGTH_LONG).show();
+        }
     }
 
     private String getFileName(Uri uri) {
@@ -129,7 +219,7 @@ public class PDFViewActivity extends AppCompatActivity implements
     @Override
     public void onPageChanged(int page, int pageCount) {
         pageNumber = page;
-        setTitle(String.format("%s %s / %s", pdfFileName, page + 1, pageCount));
+        setTitle(String.format(Locale.US, "%s %s / %s", pdfFileName, page + 1, pageCount));
     }
 
     @Override
@@ -149,7 +239,7 @@ public class PDFViewActivity extends AppCompatActivity implements
 
     private void printBookmarksTree(List<PdfDocument.Bookmark> tree, String sep) {
         for (PdfDocument.Bookmark b : tree) {
-            Log.e(TAG, String.format("%s %s, p %d", sep, b.getTitle(), b.getPageIdx()));
+            Log.e(TAG, String.format(Locale.US, "%s %s, p %d", sep, b.getTitle(), b.getPageIdx()));
             if (b.hasChildren()) {
                 printBookmarksTree(b.getChildren(), sep + "-");
             }

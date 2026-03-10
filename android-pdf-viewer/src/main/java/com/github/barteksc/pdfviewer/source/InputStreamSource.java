@@ -17,23 +17,34 @@ package com.github.barteksc.pdfviewer.source;
 
 import android.content.Context;
 
+import com.github.barteksc.pdfviewer.util.FileUtils;
 import com.github.barteksc.pdfviewer.util.Util;
 import com.shockwave.pdfium.PdfDocument;
 import com.shockwave.pdfium.PdfiumCore;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 
 public class InputStreamSource implements DocumentSource {
 
-    private InputStream inputStream;
+    private final byte[] data;
 
     public InputStreamSource(InputStream inputStream) {
-        this.inputStream = inputStream;
+        try {
+            this.data = Util.toByteArray(inputStream);
+        } catch (IOException e) {
+            throw new IllegalStateException("Unable to read PDF input stream", e);
+        }
     }
 
     @Override
     public PdfDocument createDocument(Context context, PdfiumCore core, String password) throws IOException {
-        return core.newDocument(Util.toByteArray(inputStream), password);
+        return core.newDocument(data, password);
+    }
+
+    @Override
+    public File createTempFile(Context context) throws IOException {
+        return FileUtils.fileFromBytes(context, data, "stream-source", ".pdf");
     }
 }
