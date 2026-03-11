@@ -1,0 +1,53 @@
+plugins {
+    id 'com.android.library'
+    id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.serialization'
+    id 'com.google.devtools.ksp'
+}
+
+android {
+    namespace 'com.aymanelbanhawy.editor.core'
+    compileSdk 36
+
+    defaultConfig {
+        minSdk 24
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+        consumerProguardFiles 'consumer-rules.pro'
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    testOptions {
+        unitTests.includeAndroidResources = true
+    }
+
+    lint {
+        abortOnError true
+    }
+}
+
+dependencies {
+    api 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0'
+    implementation 'androidx.core:core-ktx:1.15.0'
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7'
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.7'
+    implementation 'androidx.room:room-runtime:2.6.1'
+    implementation 'androidx.room:room-ktx:2.6.1'
+    implementation 'androidx.work:work-runtime-ktx:2.10.0'
+    implementation 'androidx.sqlite:sqlite-ktx:2.5.0'
+    implementation 'org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3'
+    implementation 'com.tom-roush:pdfbox-android:2.0.27.0'
+    ksp 'androidx.room:room-compiler:2.6.1'
+
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0'
+    testImplementation 'com.google.truth:truth:1.4.4'
+    testImplementation 'org.robolectric:robolectric:4.14.1'
+}

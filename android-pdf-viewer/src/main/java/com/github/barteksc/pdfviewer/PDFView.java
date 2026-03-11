@@ -1096,6 +1096,27 @@ public class PDFView extends RelativeLayout {
         jumpTo(page);
     }
 
+    public RectF getPageBounds(int pageIndex) {
+        if (pdfFile == null) {
+            return new RectF();
+        }
+        SizeF size = pdfFile.getPageSize(pageIndex);
+        if (size == null) {
+            return new RectF();
+        }
+        float scaledWidth = toCurrentScale(size.getWidth());
+        float scaledHeight = toCurrentScale(size.getHeight());
+        float left;
+        float top;
+        if (swipeVertical) {
+            left = currentXOffset + pdfFile.getSecondaryPageOffset(pageIndex, zoom);
+            top = currentYOffset + pdfFile.getPageOffset(pageIndex, zoom);
+        } else {
+            left = currentXOffset + pdfFile.getPageOffset(pageIndex, zoom);
+            top = currentYOffset + pdfFile.getSecondaryPageOffset(pageIndex, zoom);
+        }
+        return new RectF(left, top, left + scaledWidth, top + scaledHeight);
+    }
     public SizeF getPageSize(int pageIndex) {
         if (pdfFile == null) {
             return new SizeF(0, 0);
@@ -1709,3 +1730,4 @@ public class PDFView extends RelativeLayout {
         }
     }
 }
+
