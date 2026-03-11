@@ -1,11 +1,12 @@
-package com.aymanelbanhawy.editor.core
+﻿package com.aymanelbanhawy.editor.core
 
 import android.content.Context
 import androidx.work.WorkManager
 import com.aymanelbanhawy.editor.core.collaboration.CollaborationConflictResolver
+import com.aymanelbanhawy.editor.core.collaboration.CollaborationCredentialStore
+import com.aymanelbanhawy.editor.core.collaboration.CollaborationRemoteRegistry
 import com.aymanelbanhawy.editor.core.collaboration.CollaborationRepository
 import com.aymanelbanhawy.editor.core.collaboration.DefaultCollaborationRepository
-import com.aymanelbanhawy.editor.core.collaboration.InMemoryCollaborationRemoteDataSource
 import com.aymanelbanhawy.editor.core.data.PdfWorkspaceDatabase
 import com.aymanelbanhawy.editor.core.data.createEditorCoreDatabase
 import com.aymanelbanhawy.editor.core.enterprise.DefaultEnterpriseAdminRepository
@@ -32,6 +33,7 @@ import com.aymanelbanhawy.editor.core.session.EditorSession
 import com.aymanelbanhawy.editor.core.work.CleanupExportsWorker
 import com.aymanelbanhawy.editor.core.work.SearchIndexScheduler
 import com.aymanelbanhawy.editor.core.work.WorkManagerAutosaveScheduler
+import com.aymanelbanhawy.editor.core.work.WorkManagerCollaborationSyncScheduler
 import kotlinx.serialization.json.Json
 
 class EditorCoreContainer(
@@ -92,6 +94,14 @@ class EditorCoreContainer(
     )
     val searchIndexScheduler: SearchIndexScheduler = SearchIndexScheduler(workManager)
     val scanImportService: ScanImportService = DefaultScanImportService(appContext, ocrJobPipeline)
+    private val collaborationSyncScheduler = WorkManagerCollaborationSyncScheduler(workManager)
+    private val collaborationCredentialStore = CollaborationCredentialStore(appContext, json)
+    private val collaborationRemoteRegistry = CollaborationRemoteRegistry(
+        context = appContext,
+        enterpriseAdminRepository = enterpriseAdminRepository,
+        credentialStore = collaborationCredentialStore,
+        json = json,
+    )
     val collaborationRepository: CollaborationRepository = DefaultCollaborationRepository(
         context = appContext,
         shareLinkDao = database.shareLinkDao(),
@@ -100,8 +110,10 @@ class EditorCoreContainer(
         versionSnapshotDao = database.versionSnapshotDao(),
         activityEventDao = database.activityEventDao(),
         syncQueueDao = database.syncQueueDao(),
-        remoteDataSource = InMemoryCollaborationRemoteDataSource(),
+        remoteRegistry = collaborationRemoteRegistry,
         conflictResolver = CollaborationConflictResolver(),
+        enterpriseAdminRepository = enterpriseAdminRepository,
+        syncScheduler = collaborationSyncScheduler,
         json = json,
     )
     private val autosaveScheduler = WorkManagerAutosaveScheduler(documentRepository, workManager)

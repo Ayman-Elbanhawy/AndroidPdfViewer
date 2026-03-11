@@ -1,4 +1,4 @@
-package com.aymanelbanhawy.editor.core.enterprise
+﻿package com.aymanelbanhawy.editor.core.enterprise
 
 import kotlinx.serialization.Serializable
 
@@ -23,11 +23,40 @@ data class OidcProviderConfig(
 )
 
 @Serializable
+enum class CollaborationBackendMode {
+    Disabled,
+    LocalEmulator,
+    RemoteHttp,
+}
+
+@Serializable
+enum class CollaborationScope {
+    TenantOnly,
+    SharedWorkspace,
+    ExternalGuests,
+}
+
+@Serializable
+data class CollaborationServiceConfig(
+    val backendMode: CollaborationBackendMode = CollaborationBackendMode.LocalEmulator,
+    val baseUrl: String = "",
+    val apiPath: String = "/v1/collaboration",
+    val connectTimeoutMillis: Long = 15_000,
+    val readTimeoutMillis: Long = 45_000,
+    val requestTimeoutMillis: Long = 60_000,
+    val pageSize: Int = 100,
+    val retryCount: Int = 3,
+    val requireEnterpriseAuth: Boolean = false,
+    val allowMeteredNetwork: Boolean = true,
+)
+
+@Serializable
 data class TenantConfigurationModel(
     val tenantId: String = "personal",
     val tenantName: String = "Personal Workspace",
     val domain: String = "",
     val oidc: OidcProviderConfig = OidcProviderConfig(),
+    val collaboration: CollaborationServiceConfig = CollaborationServiceConfig(),
 )
 
 @Serializable
@@ -68,6 +97,9 @@ data class AdminPolicyModel(
     val allowedCloudConnectors: List<CloudConnector> = listOf(CloudConnector.LocalFiles),
     val aiEnabled: Boolean = false,
     val allowCloudAiProviders: Boolean = false,
+    val allowCollaborationSync: Boolean = true,
+    val allowExternalSharing: Boolean = true,
+    val collaborationScope: CollaborationScope = CollaborationScope.ExternalGuests,
 )
 
 @Serializable
@@ -84,6 +116,9 @@ data class AuthSessionModel(
     val isSignedIn: Boolean = false,
     val displayName: String = "Guest",
     val email: String = "",
+    val subjectId: String = "",
+    val collaborationCredentialAlias: String? = null,
+    val sessionExpiresAtEpochMillis: Long? = null,
 )
 
 @Serializable

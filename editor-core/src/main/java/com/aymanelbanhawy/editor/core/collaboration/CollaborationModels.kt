@@ -1,4 +1,4 @@
-package com.aymanelbanhawy.editor.core.collaboration
+﻿package com.aymanelbanhawy.editor.core.collaboration
 
 import com.aymanelbanhawy.editor.core.model.DocumentModel
 import com.aymanelbanhawy.editor.core.model.NormalizedRect
@@ -22,6 +22,9 @@ data class ShareLinkModel(
     val expiresAtEpochMillis: Long?,
     val permission: SharePermission,
     val isRevoked: Boolean = false,
+    val remoteVersion: Long? = null,
+    val serverUpdatedAtEpochMillis: Long? = null,
+    val lastSyncedAtEpochMillis: Long? = null,
 ) {
     val shareUrl: String
         get() = "https://local.enterprise.pdf/share/$token"
@@ -62,6 +65,9 @@ data class ReviewThreadModel(
     val modifiedAtEpochMillis: Long,
     val state: ReviewThreadState = ReviewThreadState.Open,
     val comments: List<ReviewCommentModel> = emptyList(),
+    val remoteVersion: Long? = null,
+    val serverUpdatedAtEpochMillis: Long? = null,
+    val lastSyncedAtEpochMillis: Long? = null,
 ) {
     val latestComment: ReviewCommentModel?
         get() = comments.maxByOrNull { it.modifiedAtEpochMillis }
@@ -105,6 +111,9 @@ data class VersionSnapshotModel(
     val createdAtEpochMillis: Long,
     val snapshotPath: String,
     val comparison: VersionComparisonMetadata,
+    val remoteVersion: Long? = null,
+    val serverUpdatedAtEpochMillis: Long? = null,
+    val lastSyncedAtEpochMillis: Long? = null,
 )
 
 @Serializable
@@ -126,14 +135,20 @@ data class ActivityEventModel(
     val createdAtEpochMillis: Long,
     val threadId: String? = null,
     val metadata: Map<String, String> = emptyMap(),
+    val remoteVersion: Long? = null,
+    val serverUpdatedAtEpochMillis: Long? = null,
+    val lastSyncedAtEpochMillis: Long? = null,
 )
 
 @Serializable
 enum class SyncOperationType {
     UpsertShareLink,
+    DeleteShareLink,
     UpsertReviewThread,
+    DeleteReviewThread,
     RecordActivity,
     CreateSnapshot,
+    PullArtifacts,
 }
 
 @Serializable
@@ -143,7 +158,33 @@ enum class SyncOperationState {
     Completed,
     Failed,
     Conflict,
+    Cancelled,
 }
+
+@Serializable
+enum class CollaborationArtifactType {
+    ShareLink,
+    ReviewThread,
+    ActivityEvent,
+    VersionSnapshot,
+}
+
+@Serializable
+enum class MutationKind {
+    Upsert,
+    Delete,
+}
+
+@Serializable
+data class QueuedMutationEnvelope(
+    val artifactType: CollaborationArtifactType,
+    val mutationKind: MutationKind,
+    val entityId: String,
+    val currentJson: String? = null,
+    val previousJson: String? = null,
+    val baseRemoteVersion: Long? = null,
+    val baseServerUpdatedAtEpochMillis: Long? = null,
+)
 
 @Serializable
 data class SyncOperationModel(
@@ -155,7 +196,13 @@ data class SyncOperationModel(
     val updatedAtEpochMillis: Long,
     val state: SyncOperationState = SyncOperationState.Pending,
     val attemptCount: Int = 0,
+    val maxAttempts: Int = 5,
+    val nextAttemptAtEpochMillis: Long = createdAtEpochMillis,
     val lastError: String? = null,
+    val idempotencyKey: String,
+    val lastHttpStatus: Int? = null,
+    val conflictPayloadJson: String? = null,
+    val tombstone: Boolean = false,
 )
 
 @Serializable
@@ -163,6 +210,7 @@ enum class SyncConflictPolicy {
     PreferNewest,
     PreferLocal,
     PreferRemote,
+    Merge,
 }
 
 @Serializable
@@ -179,6 +227,7 @@ data class CollaborationSyncSummary(
     val completedCount: Int = 0,
     val conflictCount: Int = 0,
     val failedCount: Int = 0,
+    val rolledBackCount: Int = 0,
 )
 
 @Serializable
@@ -196,6 +245,87 @@ data class CollaborationState(
     val activeFilter: ReviewFilterModel = ReviewFilterModel(),
     val pendingSyncCount: Int = 0,
 )
+
+@Serializable
+data class CollaborationRemotePage<T>(
+    val items: List<T>,
+    val nextPageToken: String? = null,
+    val serverTimestampEpochMillis: Long,
+)
+
+@Serializable
+data class CollaborationRemoteSnapshot(
+    val shareLinks: CollaborationRemotePage<ShareLinkModel>,
+    val reviewThreads: CollaborationRemotePage<ReviewThreadModel>,
+    val activityEvents: CollaborationRemotePage<ActivityEventModel>,
+    val versionSnapshots: CollaborationRemotePage<VersionSnapshotModel>,
+)
+
+@Serializable
+data class CollaborationPullRequest(
+    val documentKey: String,
+    val pageSize: Int,
+    val shareLinksPageToken: String? = null,
+    val reviewThreadsPageToken: String? = null,
+    val activityPageToken: String? = null,
+    val snapshotsPageToken: String? = null,
+)
+
+@Serializable
+data class RemoteMutationRequest(
+    val documentKey: String,
+    val operationId: String,
+    val idempotencyKey: String,
+    val requestedAtEpochMillis: Long,
+    val payload: QueuedMutationEnvelope,
+)
+
+@Serializable
+enum class RemoteErrorCode {
+    Unauthorized,
+    Forbidden,
+    Offline,
+    Conflict,
+    RateLimited,
+    Timeout,
+    InvalidRequest,
+    ServerError,
+    Unknown,
+}
+
+@Serializable
+data class RemoteErrorMetadata(
+    val code: RemoteErrorCode,
+    val message: String,
+    val retryable: Boolean,
+    val httpStatus: Int? = null,
+    val serverTimestampEpochMillis: Long? = null,
+    val conflictRemoteJson: String? = null,
+)
+
+@Serializable
+data class RemoteMutationResult(
+    val artifactType: CollaborationArtifactType,
+    val entityId: String,
+    val appliedJson: String? = null,
+    val deleted: Boolean = false,
+    val remoteVersion: Long? = null,
+    val serverTimestampEpochMillis: Long,
+    val conflict: RemoteErrorMetadata? = null,
+)
+
+@Serializable
+data class RemoteServiceHealth(
+    val isHealthy: Boolean,
+    val serviceName: String,
+    val serverTimestampEpochMillis: Long,
+    val supportsPagination: Boolean,
+    val supportsIdempotency: Boolean,
+)
+
+class CollaborationRemoteException(
+    val error: RemoteErrorMetadata,
+) : Exception(error.message)
 
 interface CollaborationRepository {
     suspend fun shareLinks(documentKey: String): List<ShareLinkModel>

@@ -1,4 +1,4 @@
-package com.aymanelbanhawy.editor.core.data
+﻿package com.aymanelbanhawy.editor.core.data
 
 import androidx.room.Dao
 import androidx.room.Insert
@@ -15,4 +15,10 @@ interface ReviewCommentDao {
 
     @Query("SELECT * FROM review_comments WHERE threadId = :threadId ORDER BY createdAtEpochMillis ASC")
     suspend fun forThread(threadId: String): List<ReviewCommentEntity>
+
+    @Query("DELETE FROM review_comments WHERE threadId = :threadId")
+    suspend fun deleteForThread(threadId: String)
+
+    @Query("DELETE FROM review_comments WHERE threadId IN (:threadIds)")
+    suspend fun deleteForThreads(threadIds: List<String>)
 }

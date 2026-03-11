@@ -1,4 +1,4 @@
-package com.aymanelbanhawy.editor.core.data
+﻿package com.aymanelbanhawy.editor.core.data
 
 import androidx.room.Entity
 import androidx.room.Index
@@ -19,4 +19,7 @@ data class ReviewThreadEntity(
     val createdAtEpochMillis: Long,
     val modifiedAtEpochMillis: Long,
     val state: String,
+    val remoteVersion: Long?,
+    val serverUpdatedAtEpochMillis: Long?,
+    val lastSyncedAtEpochMillis: Long?,
 )

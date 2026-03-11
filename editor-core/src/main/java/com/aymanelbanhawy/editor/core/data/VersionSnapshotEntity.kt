@@ -1,4 +1,4 @@
-package com.aymanelbanhawy.editor.core.data
+﻿package com.aymanelbanhawy.editor.core.data
 
 import androidx.room.Entity
 import androidx.room.Index
@@ -16,4 +16,7 @@ data class VersionSnapshotEntity(
     val createdAtEpochMillis: Long,
     val snapshotPath: String,
     val comparisonJson: String,
+    val remoteVersion: Long?,
+    val serverUpdatedAtEpochMillis: Long?,
+    val lastSyncedAtEpochMillis: Long?,
 )

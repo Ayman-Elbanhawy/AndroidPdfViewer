@@ -1,4 +1,4 @@
-package com.aymanelbanhawy.editor.core.data
+﻿package com.aymanelbanhawy.editor.core.data
 
 import androidx.room.Database
 import androidx.room.RoomDatabase
@@ -26,7 +26,7 @@ import androidx.room.RoomDatabase
         EnterpriseSettingsEntity::class,
         TelemetryEventEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = false,
 )
 abstract class PdfWorkspaceDatabase : RoomDatabase() {

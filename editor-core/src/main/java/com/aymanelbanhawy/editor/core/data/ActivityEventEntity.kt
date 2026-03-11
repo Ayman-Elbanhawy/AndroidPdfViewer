@@ -1,4 +1,4 @@
-package com.aymanelbanhawy.editor.core.data
+﻿package com.aymanelbanhawy.editor.core.data
 
 import androidx.room.Entity
 import androidx.room.Index
@@ -18,4 +18,7 @@ data class ActivityEventEntity(
     val createdAtEpochMillis: Long,
     val threadId: String?,
     val metadataJson: String,
+    val remoteVersion: Long?,
+    val serverUpdatedAtEpochMillis: Long?,
+    val lastSyncedAtEpochMillis: Long?,
 )
