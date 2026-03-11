@@ -18,11 +18,20 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Comment
+import androidx.compose.material.icons.automirrored.outlined.Article
 import androidx.compose.material.icons.automirrored.outlined.Redo
 import androidx.compose.material.icons.automirrored.outlined.Undo
+import androidx.compose.material.icons.outlined.AdminPanelSettings
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.BorderColor
+import androidx.compose.material.icons.outlined.FactCheck
 import androidx.compose.material.icons.outlined.FileOpen
+import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.IosShare
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -31,13 +40,17 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -410,7 +423,8 @@ fun EditorScreen(
                         onUpdatePolicy = onUpdateEnterprisePolicy,
                         onGenerateDiagnostics = onGenerateDiagnosticsBundle,
                     )
-                }                state.activePanel == WorkspacePanel.Protect && state.annotationSidebarVisible -> {
+                }
+                state.activePanel == WorkspacePanel.Protect && state.annotationSidebarVisible -> {
                     SecuritySidebar(
                         modifier = Modifier.width(420.dp).fillMaxHeight().padding(12.dp),
                         security = state.session.document?.security ?: com.aymanelbanhawy.editor.core.security.SecurityDocumentModel(),
@@ -549,6 +563,7 @@ private fun AnnotationTool.label(): String = when (this) {
     AnnotationTool.StickyNote -> "Note"
     AnnotationTool.TextBox -> "Text"
 }
+
 
 
 
