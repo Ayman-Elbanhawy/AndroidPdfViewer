@@ -198,6 +198,8 @@ fun EditorScreen(
     onUpdateEnterprisePrivacy: (PrivacySettingsModel) -> Unit,
     onUpdateEnterprisePolicy: (AdminPolicyModel) -> Unit,
     onGenerateDiagnosticsBundle: () -> Unit,
+    onRefreshEnterpriseRemote: () -> Unit,
+    onFlushEnterpriseTelemetry: () -> Unit,
     onRotatePage: () -> Unit,
     onReorderPages: () -> Unit,
     onUndo: () -> Unit,
@@ -439,6 +441,8 @@ fun EditorScreen(
                         onUpdatePrivacy = onUpdateEnterprisePrivacy,
                         onUpdatePolicy = onUpdateEnterprisePolicy,
                         onGenerateDiagnostics = onGenerateDiagnosticsBundle,
+                        onRefreshRemoteState = onRefreshEnterpriseRemote,
+                        onFlushTelemetry = onFlushEnterpriseTelemetry,
                     )
                 }
                 state.activePanel == WorkspacePanel.Protect && state.annotationSidebarVisible -> {
@@ -632,5 +636,6 @@ private fun EditorAction.tooltipLabel(): String = when (this) {
     EditorAction.Activity -> "Activity"
     EditorAction.Settings -> "Settings"
 }
+
 
 

@@ -989,7 +989,25 @@ class EditorViewModel(
         viewModelScope.launch {
             enterpriseState.value = appContainer.enterpriseAdminRepository.signInEnterprise(email, tenant)
             entitlements.value = appContainer.enterpriseAdminRepository.resolveEntitlements(enterpriseState.value)
+            telemetryEvents.value = appContainer.enterpriseAdminRepository.pendingTelemetry()
             queueTelemetry("sign_in_enterprise", mapOf("tenant" to tenant.tenantName))
+        }
+    }
+
+    fun refreshEnterpriseRemoteState() {
+        viewModelScope.launch {
+            enterpriseState.value = appContainer.enterpriseAdminRepository.refreshRemoteState(force = true)
+            entitlements.value = appContainer.enterpriseAdminRepository.resolveEntitlements(enterpriseState.value)
+            telemetryEvents.value = appContainer.enterpriseAdminRepository.pendingTelemetry()
+            localEvents.emit(EditorSessionEvent.UserMessage("Refreshed enterprise tenant and policy state"))
+        }
+    }
+
+    fun flushEnterpriseTelemetry() {
+        viewModelScope.launch {
+            val uploaded = appContainer.enterpriseAdminRepository.flushTelemetry()
+            telemetryEvents.value = appContainer.enterpriseAdminRepository.pendingTelemetry()
+            localEvents.emit(EditorSessionEvent.UserMessage(if (uploaded > 0) "Uploaded $uploaded telemetry event(s)" else "No telemetry uploaded"))
         }
     }
 
@@ -1251,7 +1269,7 @@ class EditorViewModel(
         assistantState.value = appContainer.aiAssistantRepository.state.value
     }
     private suspend fun refreshEnterpriseData() {
-        enterpriseState.value = appContainer.enterpriseAdminRepository.loadState()
+        enterpriseState.value = appContainer.enterpriseAdminRepository.refreshRemoteState(force = false)
         entitlements.value = appContainer.enterpriseAdminRepository.resolveEntitlements(enterpriseState.value)
         telemetryEvents.value = appContainer.enterpriseAdminRepository.pendingTelemetry()
     }
@@ -1369,6 +1387,7 @@ class EditorViewModel(
 }
 
 private fun Set<Int>.toggle(index: Int): Set<Int> = if (index in this) this - index else this + index
+
 
 
 

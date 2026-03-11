@@ -1,4 +1,4 @@
-﻿package com.aymanelbanhawy.editor.core.collaboration
+package com.aymanelbanhawy.editor.core.collaboration
 
 import android.content.Context
 import android.content.ContextWrapper
@@ -263,9 +263,12 @@ private class TestEnterpriseAdminRepository : EnterpriseAdminRepository {
     override suspend fun signInPersonal(displayName: String): EnterpriseAdminStateModel = state
     override suspend fun signInEnterprise(email: String, tenant: TenantConfigurationModel): EnterpriseAdminStateModel = state
     override suspend fun signOut(): EnterpriseAdminStateModel = state
+    override suspend fun refreshRemoteState(force: Boolean): EnterpriseAdminStateModel = state
+    override suspend fun refreshSessionIfNeeded(): EnterpriseAdminStateModel = state
     override suspend fun resolveEntitlements(state: EnterpriseAdminStateModel): EntitlementStateModel = EntitlementStateModel(LicensePlan.Enterprise, setOf(FeatureFlag.Collaboration))
     override suspend fun queueTelemetry(event: TelemetryEventModel) = Unit
     override suspend fun pendingTelemetry(): List<TelemetryEventModel> = emptyList()
+    override suspend fun flushTelemetry(): Int = 0
     override suspend fun diagnosticsBundle(destination: File, appSummary: Map<String, String>): File = destination
 }
 
@@ -320,6 +323,8 @@ private class FakeSyncQueueDao : SyncQueueDao {
     override suspend fun eligible(documentKey: String, nowEpochMillis: Long): List<SyncQueueEntity> = items.values.filter { it.documentKey == documentKey && it.state in listOf(SyncOperationState.Pending.name, SyncOperationState.Failed.name, SyncOperationState.Conflict.name) && it.nextAttemptAtEpochMillis <= nowEpochMillis }
     override suspend fun eligibleAll(nowEpochMillis: Long): List<SyncQueueEntity> = items.values.filter { it.state in listOf(SyncOperationState.Pending.name, SyncOperationState.Failed.name, SyncOperationState.Conflict.name) && it.nextAttemptAtEpochMillis <= nowEpochMillis }
 }
+
+
 
 
 

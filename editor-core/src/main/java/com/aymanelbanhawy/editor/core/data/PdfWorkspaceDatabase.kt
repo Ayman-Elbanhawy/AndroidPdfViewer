@@ -27,7 +27,7 @@ import androidx.room.RoomDatabase
         EnterpriseSettingsEntity::class,
         TelemetryEventEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = false,
 )
 abstract class PdfWorkspaceDatabase : RoomDatabase() {
@@ -53,3 +53,4 @@ abstract class PdfWorkspaceDatabase : RoomDatabase() {
     abstract fun enterpriseSettingsDao(): EnterpriseSettingsDao
     abstract fun telemetryEventDao(): TelemetryEventDao
 }
+

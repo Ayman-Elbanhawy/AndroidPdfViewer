@@ -1,4 +1,4 @@
-﻿package com.aymanelbanhawy.editor.core.collaboration
+package com.aymanelbanhawy.editor.core.collaboration
 
 import android.content.Context
 import android.content.ContextWrapper
@@ -79,11 +79,16 @@ private class StaticEnterpriseRepo(
     override suspend fun signInPersonal(displayName: String): EnterpriseAdminStateModel = state
     override suspend fun signInEnterprise(email: String, tenant: TenantConfigurationModel): EnterpriseAdminStateModel = state
     override suspend fun signOut(): EnterpriseAdminStateModel = state
+    override suspend fun refreshRemoteState(force: Boolean): EnterpriseAdminStateModel = state
+    override suspend fun refreshSessionIfNeeded(): EnterpriseAdminStateModel = state
     override suspend fun resolveEntitlements(state: EnterpriseAdminStateModel): EntitlementStateModel = EntitlementStateModel(LicensePlan.Enterprise, setOf(FeatureFlag.Collaboration))
     override suspend fun queueTelemetry(event: TelemetryEventModel) = Unit
     override suspend fun pendingTelemetry(): List<TelemetryEventModel> = emptyList()
+    override suspend fun flushTelemetry(): Int = 0
     override suspend fun diagnosticsBundle(destination: File, appSummary: Map<String, String>): File = destination
 }
+
+
 
 
 

@@ -6,3 +6,5 @@
 
 -dontwarn org.bouncycastle.**
 -keep class org.bouncycastle.** { *; }
+
+-keep class com.aymanelbanhawy.editor.core.enterprise.** { *; }

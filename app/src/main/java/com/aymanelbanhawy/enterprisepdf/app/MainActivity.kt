@@ -162,6 +162,8 @@ class MainActivity : ComponentActivity() {
                             onUpdateEnterprisePrivacy = viewModel::updateEnterprisePrivacy,
                             onUpdateEnterprisePolicy = viewModel::updateEnterprisePolicy,
                             onGenerateDiagnosticsBundle = viewModel::generateDiagnosticsBundle,
+                            onRefreshEnterpriseRemote = viewModel::refreshEnterpriseRemoteState,
+                            onFlushEnterpriseTelemetry = viewModel::flushEnterpriseTelemetry,
                             onRotatePage = viewModel::rotateCurrentPage,
                             onReorderPages = viewModel::showOrganize,
                             onUndo = viewModel::undo,
@@ -202,6 +204,7 @@ class MainActivity : ComponentActivity() {
         startActivity(Intent.createChooser(sendIntent, event.title))
     }
 }
+
 
 
 

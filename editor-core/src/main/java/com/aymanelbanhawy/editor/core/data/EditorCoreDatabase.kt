@@ -12,7 +12,7 @@ fun createEditorCoreDatabase(context: Context): PdfWorkspaceDatabase {
         PdfWorkspaceDatabase::class.java,
         DATABASE_NAME,
     )
-        .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+        .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
         .build()
 }
 
@@ -133,5 +133,21 @@ val MIGRATION_9_10 = object : androidx.room.migration.Migration(9, 10) {
             )
             """.trimIndent(),
         )
+    }
+}
+
+val MIGRATION_10_11 = object : androidx.room.migration.Migration(10, 11) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL("ALTER TABLE enterprise_settings ADD COLUMN policy_version TEXT NOT NULL DEFAULT 'local'")
+        database.execSQL("ALTER TABLE enterprise_settings ADD COLUMN policy_etag TEXT")
+        database.execSQL("ALTER TABLE enterprise_settings ADD COLUMN last_sync_at INTEGER")
+        database.execSQL("ALTER TABLE enterprise_settings ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 2")
+
+        database.execSQL("ALTER TABLE telemetry_events ADD COLUMN upload_state TEXT NOT NULL DEFAULT 'Pending'")
+        database.execSQL("ALTER TABLE telemetry_events ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0")
+        database.execSQL("ALTER TABLE telemetry_events ADD COLUMN last_attempt_at INTEGER")
+        database.execSQL("ALTER TABLE telemetry_events ADD COLUMN uploaded_at INTEGER")
+        database.execSQL("ALTER TABLE telemetry_events ADD COLUMN failure_message TEXT")
+        database.execSQL("CREATE INDEX IF NOT EXISTS index_telemetry_events_upload_state_created_at ON telemetry_events(upload_state, created_at)")
     }
 }

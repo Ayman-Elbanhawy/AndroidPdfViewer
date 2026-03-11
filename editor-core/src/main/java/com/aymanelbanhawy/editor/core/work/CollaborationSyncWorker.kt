@@ -1,4 +1,4 @@
-﻿package com.aymanelbanhawy.editor.core.work
+package com.aymanelbanhawy.editor.core.work
 
 import android.content.Context
 import androidx.room.Room
@@ -8,8 +8,14 @@ import com.aymanelbanhawy.editor.core.collaboration.CollaborationConflictResolve
 import com.aymanelbanhawy.editor.core.collaboration.CollaborationCredentialStore
 import com.aymanelbanhawy.editor.core.collaboration.CollaborationRemoteRegistry
 import com.aymanelbanhawy.editor.core.collaboration.DefaultCollaborationRepository
+import com.aymanelbanhawy.editor.core.data.MIGRATION_10_11
+import com.aymanelbanhawy.editor.core.data.MIGRATION_7_8
+import com.aymanelbanhawy.editor.core.data.MIGRATION_8_9
+import com.aymanelbanhawy.editor.core.data.MIGRATION_9_10
 import com.aymanelbanhawy.editor.core.data.PdfWorkspaceDatabase
 import com.aymanelbanhawy.editor.core.enterprise.DefaultEnterpriseAdminRepository
+import com.aymanelbanhawy.editor.core.enterprise.EnterpriseCredentialStore
+import com.aymanelbanhawy.editor.core.enterprise.EnterpriseRemoteRegistry
 import kotlinx.serialization.json.Json
 
 class CollaborationSyncWorker(
@@ -25,13 +31,15 @@ class CollaborationSyncWorker(
             classDiscriminator = "_type"
         }
         val database = Room.databaseBuilder(applicationContext, PdfWorkspaceDatabase::class.java, DB_NAME)
-            .addMigrations(com.aymanelbanhawy.editor.core.data.MIGRATION_7_8, com.aymanelbanhawy.editor.core.data.MIGRATION_8_9)
+            .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
             .build()
         return try {
             val enterpriseAdminRepository = DefaultEnterpriseAdminRepository(
                 context = applicationContext,
                 settingsDao = database.enterpriseSettingsDao(),
                 telemetryDao = database.telemetryEventDao(),
+                credentialStore = EnterpriseCredentialStore(applicationContext, json),
+                remoteRegistry = EnterpriseRemoteRegistry(applicationContext, json),
                 json = json,
             )
             val repository = DefaultCollaborationRepository(

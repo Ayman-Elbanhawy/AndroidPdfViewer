@@ -11,10 +11,12 @@ import com.aymanelbanhawy.editor.core.data.PdfWorkspaceDatabase
 import com.aymanelbanhawy.editor.core.data.createEditorCoreDatabase
 import com.aymanelbanhawy.editor.core.enterprise.DefaultEnterpriseAdminRepository
 import com.aymanelbanhawy.editor.core.enterprise.EnterpriseAdminRepository
+import com.aymanelbanhawy.editor.core.enterprise.EnterpriseCredentialStore
+import com.aymanelbanhawy.editor.core.enterprise.EnterpriseRemoteRegistry
 import com.aymanelbanhawy.editor.core.forms.DefaultFormSupportRepository
+import com.aymanelbanhawy.editor.core.forms.DigitalSignatureService
 import com.aymanelbanhawy.editor.core.forms.FormSupportRepository
 import com.aymanelbanhawy.editor.core.forms.PdfBoxDigitalSignatureService
-import com.aymanelbanhawy.editor.core.forms.DigitalSignatureService
 import com.aymanelbanhawy.editor.core.ocr.OcrJobPipeline
 import com.aymanelbanhawy.editor.core.ocr.OcrSessionStore
 import com.aymanelbanhawy.editor.core.organize.DefaultPageThumbnailRepository
@@ -34,6 +36,7 @@ import com.aymanelbanhawy.editor.core.session.DefaultEditorSession
 import com.aymanelbanhawy.editor.core.session.EditorSession
 import com.aymanelbanhawy.editor.core.work.CleanupExportsWorker
 import com.aymanelbanhawy.editor.core.work.SearchIndexScheduler
+import com.aymanelbanhawy.editor.core.work.TelemetryUploadScheduler
 import com.aymanelbanhawy.editor.core.work.WorkManagerAutosaveScheduler
 import com.aymanelbanhawy.editor.core.work.WorkManagerCollaborationSyncScheduler
 import com.aymanelbanhawy.editor.core.write.PdfBoxWriteEngine
@@ -53,6 +56,8 @@ class EditorCoreContainer(
     }
     private val ocrSessionStore = OcrSessionStore(json)
     private val secureFileCipher = AndroidSecureFileCipher(appContext)
+    private val enterpriseCredentialStore = EnterpriseCredentialStore(appContext, json)
+    private val enterpriseRemoteRegistry = EnterpriseRemoteRegistry(appContext, json)
     val digitalSignatureService: DigitalSignatureService = PdfBoxDigitalSignatureService(
         context = appContext,
         signingIdentityDao = database.signingIdentityDao(),
@@ -62,6 +67,8 @@ class EditorCoreContainer(
         context = appContext,
         settingsDao = database.enterpriseSettingsDao(),
         telemetryDao = database.telemetryEventDao(),
+        credentialStore = enterpriseCredentialStore,
+        remoteRegistry = enterpriseRemoteRegistry,
         json = json,
     )
     val securityRepository: SecurityRepository = DefaultSecurityRepository(
@@ -134,9 +141,11 @@ class EditorCoreContainer(
         json = json,
     )
     private val autosaveScheduler = WorkManagerAutosaveScheduler(documentRepository, workManager)
+    private val telemetryUploadScheduler = TelemetryUploadScheduler(workManager)
 
     init {
         CleanupExportsWorker.enqueue(workManager)
+        telemetryUploadScheduler.enqueue()
     }
 
     fun newSession(): EditorSession = DefaultEditorSession(documentRepository, autosaveScheduler)
