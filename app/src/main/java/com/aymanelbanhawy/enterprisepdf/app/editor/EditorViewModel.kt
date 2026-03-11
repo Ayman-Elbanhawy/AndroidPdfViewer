@@ -38,6 +38,11 @@ import com.aymanelbanhawy.editor.core.command.RotatePageCommand
 import com.aymanelbanhawy.editor.core.command.UpdateAnnotationCommand
 import com.aymanelbanhawy.editor.core.command.UpdateFormFieldCommand
 import com.aymanelbanhawy.editor.core.command.UpdatePageEditCommand
+import com.aymanelbanhawy.editor.core.connectors.ConnectorAccountDraft
+import com.aymanelbanhawy.editor.core.connectors.ConnectorAccountModel
+import com.aymanelbanhawy.editor.core.connectors.ConnectorSaveRequest
+import com.aymanelbanhawy.editor.core.connectors.ConnectorTransferJobModel
+import com.aymanelbanhawy.editor.core.connectors.SaveDestinationMode
 import com.aymanelbanhawy.editor.core.enterprise.AdminPolicyModel
 import com.aymanelbanhawy.editor.core.enterprise.EnterpriseAdminStateModel
 import com.aymanelbanhawy.editor.core.enterprise.EntitlementStateModel
@@ -120,6 +125,14 @@ enum class WorkspacePanel {
     Settings,
 }
 
+data class ConnectorExportUiState(
+    val destinationMode: SaveDestinationMode,
+    val exportMode: AnnotationExportMode,
+    val selectedAccountId: String = "",
+    val remotePath: String = "",
+    val displayName: String = "document.pdf",
+)
+
 data class EditorUiState(
     val session: EditorSessionState = EditorSessionState(),
     val activeTool: AnnotationTool = AnnotationTool.Select,
@@ -157,6 +170,9 @@ data class EditorUiState(
     val entitlements: EntitlementStateModel = EntitlementStateModel(LicensePlan.Free, emptySet()),
     val telemetryEvents: List<TelemetryEventModel> = emptyList(),
     val diagnosticsBundleCount: Int = 0,
+    val connectorAccounts: List<ConnectorAccountModel> = emptyList(),
+    val connectorJobs: List<ConnectorTransferJobModel> = emptyList(),
+    val connectorExportDialog: ConnectorExportUiState? = null,
 ) {
     val selectedAnnotation: AnnotationModel?
         get() = session.document?.pages?.flatMap { it.annotations }?.firstOrNull { it.id in session.selection.selectedAnnotationIds }
@@ -219,6 +235,9 @@ class EditorViewModel(
     private val entitlements = MutableStateFlow(EntitlementStateModel(LicensePlan.Free, emptySet()))
     private val telemetryEvents = MutableStateFlow(emptyList<TelemetryEventModel>())
     private val diagnosticsBundleCount = MutableStateFlow(0)
+    private val connectorAccounts = MutableStateFlow(emptyList<ConnectorAccountModel>())
+    private val connectorJobs = MutableStateFlow(emptyList<ConnectorTransferJobModel>())
+    private val connectorExportDialog = MutableStateFlow<ConnectorExportUiState?>(null)
     private val assistantState = MutableStateFlow(AssistantUiState())
     private val localEvents = MutableSharedFlow<EditorSessionEvent>(extraBufferCapacity = 16)
     private val indexingPolicy = IndexingPolicy()
@@ -259,6 +278,9 @@ class EditorViewModel(
         entitlements,
         telemetryEvents,
         diagnosticsBundleCount,
+        connectorAccounts,
+        connectorJobs,
+        connectorExportDialog,
     ) { values ->
         EditorUiState(
             session = values[0] as EditorSessionState,
@@ -295,6 +317,9 @@ class EditorViewModel(
             entitlements = values[31] as EntitlementStateModel,
             telemetryEvents = values[32] as List<TelemetryEventModel>,
             diagnosticsBundleCount = values[33] as Int,
+            connectorAccounts = values[34] as List<ConnectorAccountModel>,
+            connectorJobs = values[35] as List<ConnectorTransferJobModel>,
+            connectorExportDialog = values[36] as ConnectorExportUiState?,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EditorUiState())
 
@@ -371,7 +396,7 @@ class EditorViewModel(
             EditorAction.Settings -> {
                 activePanel.value = WorkspacePanel.Settings
                 sidebarVisible.value = true
-                viewModelScope.launch { refreshEnterpriseData() }
+                viewModelScope.launch { refreshEnterpriseData(); refreshConnectorData() }
                 session.onActionSelected(action)
             }
             EditorAction.Share -> {
@@ -1238,6 +1263,151 @@ class EditorViewModel(
             persistCurrentSecurity()
             recordActivity(ActivityEventType.Exported, "Saved flattened copy")
         }
+    }
+
+    fun saveToConnectorEditable() {
+        showConnectorExportDialog(SaveDestinationMode.SaveCopy, AnnotationExportMode.Editable)
+    }
+
+    fun saveToConnectorFlattened() {
+        showConnectorExportDialog(SaveDestinationMode.SaveCopy, AnnotationExportMode.Flatten)
+    }
+
+    fun shareToConnectorEditable() {
+        showConnectorExportDialog(SaveDestinationMode.ShareCopy, AnnotationExportMode.Editable)
+    }
+
+    fun dismissConnectorExportDialog() {
+        connectorExportDialog.value = null
+    }
+
+    fun updateConnectorExportAccount(accountId: String) {
+        connectorExportDialog.value = connectorExportDialog.value?.copy(selectedAccountId = accountId)
+    }
+
+    fun updateConnectorExportRemotePath(remotePath: String) {
+        connectorExportDialog.value = connectorExportDialog.value?.copy(remotePath = remotePath)
+    }
+
+    fun updateConnectorExportDisplayName(displayName: String) {
+        connectorExportDialog.value = connectorExportDialog.value?.copy(displayName = displayName)
+    }
+
+    fun submitConnectorExport() {
+        val document = session.state.value.document ?: return
+        val exportState = connectorExportDialog.value ?: return
+        viewModelScope.launch {
+            try {
+                appContainer.connectorRepository.queueExport(
+                    document = document,
+                    request = ConnectorSaveRequest(
+                        connectorAccountId = exportState.selectedAccountId,
+                        remotePath = exportState.remotePath,
+                        displayName = exportState.displayName,
+                        exportMode = exportState.exportMode,
+                        destinationMode = exportState.destinationMode,
+                        overwrite = true,
+                    ),
+                )
+                val completed = appContainer.connectorRepository.syncPendingTransfers()
+                refreshConnectorData()
+                connectorExportDialog.value = null
+                localEvents.emit(EditorSessionEvent.UserMessage(if (completed > 0) "Connector transfer completed" else "Transfer queued for background sync"))
+                recordActivity(ActivityEventType.Exported, "Queued ${exportState.destinationMode.name.lowercase()} to connector")
+                queueTelemetry("connector_export_queued", mapOf("mode" to exportState.destinationMode.name, "exportMode" to exportState.exportMode.name))
+            } catch (error: Throwable) {
+                localEvents.emit(EditorSessionEvent.UserMessage(error.message ?: "Connector export failed"))
+            }
+        }
+    }
+
+    fun saveConnectorAccount(draft: ConnectorAccountDraft) {
+        viewModelScope.launch {
+            runCatching {
+                appContainer.connectorRepository.saveAccount(draft)
+            }.onSuccess {
+                refreshConnectorData()
+                queueTelemetry("connector_account_saved", mapOf("type" to draft.connectorType.name))
+                localEvents.emit(EditorSessionEvent.UserMessage("Saved connector account ${it.displayName}"))
+            }.onFailure {
+                localEvents.emit(EditorSessionEvent.UserMessage(it.message ?: "Unable to save connector account"))
+            }
+        }
+    }
+
+    fun testConnectorConnection(accountId: String) {
+        viewModelScope.launch {
+            val result = runCatching { appContainer.connectorRepository.testConnection(accountId) }.getOrElse {
+                localEvents.emit(EditorSessionEvent.UserMessage(it.message ?: "Connector test failed"))
+                return@launch
+            }
+            localEvents.emit(EditorSessionEvent.UserMessage(result.message ?: "Connection test passed"))
+        }
+    }
+
+    fun openDocumentFromConnector(accountId: String, remotePath: String, displayName: String) {
+        viewModelScope.launch {
+            runCatching {
+                appContainer.connectorRepository.openDocument(accountId, remotePath, displayName)
+            }.onSuccess { request ->
+                session.openDocument(request)
+                refreshThumbnails()
+                refreshFormSupportData()
+                refreshSearchSupportData(forceSync = true)
+                refreshCollaborationData()
+                refreshSecurityData()
+                refreshEnterpriseData()
+                refreshConnectorData()
+                localEvents.emit(EditorSessionEvent.UserMessage("Opened $displayName from connector"))
+            }.onFailure {
+                localEvents.emit(EditorSessionEvent.UserMessage(it.message ?: "Unable to open connector document"))
+            }
+        }
+    }
+
+    fun syncConnectorTransfers() {
+        viewModelScope.launch {
+            val completed = runCatching { appContainer.connectorRepository.syncPendingTransfers() }.getOrElse {
+                localEvents.emit(EditorSessionEvent.UserMessage(it.message ?: "Connector sync failed"))
+                return@launch
+            }
+            refreshConnectorData()
+            localEvents.emit(EditorSessionEvent.UserMessage(if (completed > 0) "Synced $completed connector transfer(s)" else "No connector transfers completed"))
+        }
+    }
+
+    fun cleanupConnectorCache() {
+        viewModelScope.launch {
+            val evicted = runCatching { appContainer.connectorRepository.cleanupCache() }.getOrElse {
+                localEvents.emit(EditorSessionEvent.UserMessage(it.message ?: "Unable to clean connector cache"))
+                return@launch
+            }
+            refreshConnectorData()
+            localEvents.emit(EditorSessionEvent.UserMessage("Evicted $evicted connector cache file(s)"))
+        }
+    }
+
+    private fun showConnectorExportDialog(destinationMode: SaveDestinationMode, exportMode: AnnotationExportMode) {
+        val document = session.state.value.document ?: return
+        viewModelScope.launch {
+            val accounts = appContainer.connectorRepository.allowedDestinations(forShare = destinationMode == SaveDestinationMode.ShareCopy)
+            if (accounts.isEmpty()) {
+                localEvents.emit(EditorSessionEvent.UserMessage("No connector destinations are allowed by current policy"))
+                return@launch
+            }
+            connectorAccounts.value = accounts
+            connectorExportDialog.value = ConnectorExportUiState(
+                destinationMode = destinationMode,
+                exportMode = exportMode,
+                selectedAccountId = accounts.first().id,
+                remotePath = "/${document.documentRef.displayName}",
+                displayName = document.documentRef.displayName,
+            )
+        }
+    }
+    private suspend fun refreshConnectorData() {
+        connectorAccounts.value = appContainer.connectorRepository.accounts()
+        connectorJobs.value = appContainer.connectorRepository.transferJobs()
     }
 
     private suspend fun refreshFormSupportData() {

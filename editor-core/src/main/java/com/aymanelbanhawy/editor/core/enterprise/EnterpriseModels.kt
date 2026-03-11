@@ -101,6 +101,8 @@ enum class CloudConnector {
     OneDrive,
     SharePoint,
     Box,
+    WebDav,
+    DocumentProvider,
 }
 
 @Serializable

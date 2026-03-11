@@ -8,3 +8,5 @@
 -keep class org.bouncycastle.** { *; }
 
 -keep class com.aymanelbanhawy.editor.core.enterprise.** { *; }
+
+-keep class com.aymanelbanhawy.editor.core.connectors.** { *; }

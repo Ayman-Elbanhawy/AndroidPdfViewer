@@ -5,6 +5,7 @@ import com.aymanelbanhawy.aiassistant.core.AiAssistantRepository
 import com.aymanelbanhawy.aiassistant.core.DefaultAiAssistantRepository
 import com.aymanelbanhawy.editor.core.EditorCoreContainer
 import com.aymanelbanhawy.editor.core.collaboration.CollaborationRepository
+import com.aymanelbanhawy.editor.core.connectors.ConnectorRepository
 import com.aymanelbanhawy.editor.core.enterprise.EnterpriseAdminRepository
 import com.aymanelbanhawy.editor.core.forms.FormSupportRepository
 import com.aymanelbanhawy.editor.core.model.OpenDocumentRequest
@@ -23,6 +24,7 @@ class AppContainer(
 ) {
     val appContext: Context get() = editorCoreContainer.appContext
     val documentRepository: DocumentRepository get() = editorCoreContainer.documentRepository
+    val connectorRepository: ConnectorRepository get() = editorCoreContainer.connectorRepository
     val pageThumbnailRepository: PageThumbnailRepository get() = editorCoreContainer.pageThumbnailRepository
     val formSupportRepository: FormSupportRepository get() = editorCoreContainer.formSupportRepository
     val documentSearchService: DocumentSearchService get() = editorCoreContainer.documentSearchService
@@ -49,5 +51,3 @@ class AppContainer(
         return OpenDocumentRequest.FromAsset(assetName = "sample.pdf", displayName = "sample.pdf")
     }
 }
-
-

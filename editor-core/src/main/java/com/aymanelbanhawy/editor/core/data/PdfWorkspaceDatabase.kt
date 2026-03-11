@@ -26,8 +26,11 @@ import androidx.room.RoomDatabase
         AuditTrailEventEntity::class,
         EnterpriseSettingsEntity::class,
         TelemetryEventEntity::class,
+        ConnectorAccountEntity::class,
+        RemoteDocumentMetadataEntity::class,
+        ConnectorTransferJobEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = false,
 )
 abstract class PdfWorkspaceDatabase : RoomDatabase() {
@@ -52,5 +55,7 @@ abstract class PdfWorkspaceDatabase : RoomDatabase() {
     abstract fun auditTrailEventDao(): AuditTrailEventDao
     abstract fun enterpriseSettingsDao(): EnterpriseSettingsDao
     abstract fun telemetryEventDao(): TelemetryEventDao
+    abstract fun connectorAccountDao(): ConnectorAccountDao
+    abstract fun remoteDocumentMetadataDao(): RemoteDocumentMetadataDao
+    abstract fun connectorTransferJobDao(): ConnectorTransferJobDao
 }
-

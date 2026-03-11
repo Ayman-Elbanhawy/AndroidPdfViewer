@@ -7,6 +7,8 @@ import com.aymanelbanhawy.editor.core.collaboration.CollaborationCredentialStore
 import com.aymanelbanhawy.editor.core.collaboration.CollaborationRemoteRegistry
 import com.aymanelbanhawy.editor.core.collaboration.CollaborationRepository
 import com.aymanelbanhawy.editor.core.collaboration.DefaultCollaborationRepository
+import com.aymanelbanhawy.editor.core.connectors.ConnectorRepository
+import com.aymanelbanhawy.editor.core.connectors.DefaultConnectorRepository
 import com.aymanelbanhawy.editor.core.data.PdfWorkspaceDatabase
 import com.aymanelbanhawy.editor.core.data.createEditorCoreDatabase
 import com.aymanelbanhawy.editor.core.enterprise.DefaultEnterpriseAdminRepository
@@ -35,6 +37,7 @@ import com.aymanelbanhawy.editor.core.security.SecurityRepository
 import com.aymanelbanhawy.editor.core.session.DefaultEditorSession
 import com.aymanelbanhawy.editor.core.session.EditorSession
 import com.aymanelbanhawy.editor.core.work.CleanupExportsWorker
+import com.aymanelbanhawy.editor.core.work.ConnectorTransferScheduler
 import com.aymanelbanhawy.editor.core.work.SearchIndexScheduler
 import com.aymanelbanhawy.editor.core.work.TelemetryUploadScheduler
 import com.aymanelbanhawy.editor.core.work.WorkManagerAutosaveScheduler
@@ -115,6 +118,17 @@ class EditorCoreContainer(
         digitalSignatureService = digitalSignatureService,
         securityRepository = securityRepository,
     )
+    val connectorRepository: ConnectorRepository = DefaultConnectorRepository(
+        context = appContext,
+        accountDao = database.connectorAccountDao(),
+        remoteDocumentMetadataDao = database.remoteDocumentMetadataDao(),
+        transferJobDao = database.connectorTransferJobDao(),
+        documentRepository = documentRepository,
+        enterpriseAdminRepository = enterpriseAdminRepository,
+        securityRepository = securityRepository,
+        secureFileCipher = secureFileCipher,
+        json = json,
+    )
     val pageThumbnailRepository: PageThumbnailRepository = DefaultPageThumbnailRepository(appContext)
     val searchIndexScheduler: SearchIndexScheduler = SearchIndexScheduler(workManager)
     val scanImportService: ScanImportService = DefaultScanImportService(appContext, ocrJobPipeline)
@@ -142,10 +156,12 @@ class EditorCoreContainer(
     )
     private val autosaveScheduler = WorkManagerAutosaveScheduler(documentRepository, workManager)
     private val telemetryUploadScheduler = TelemetryUploadScheduler(workManager)
+    private val connectorTransferScheduler = ConnectorTransferScheduler(workManager)
 
     init {
         CleanupExportsWorker.enqueue(workManager)
         telemetryUploadScheduler.enqueue()
+        connectorTransferScheduler.enqueue()
     }
 
     fun newSession(): EditorSession = DefaultEditorSession(documentRepository, autosaveScheduler)

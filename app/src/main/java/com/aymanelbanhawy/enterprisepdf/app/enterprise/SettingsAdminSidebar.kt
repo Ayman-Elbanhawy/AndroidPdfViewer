@@ -30,6 +30,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.aymanelbanhawy.editor.core.connectors.ConnectorAccountDraft
+import com.aymanelbanhawy.editor.core.connectors.ConnectorAccountModel
+import com.aymanelbanhawy.editor.core.connectors.ConnectorTransferJobModel
 import com.aymanelbanhawy.editor.core.enterprise.AdminPolicyModel
 import com.aymanelbanhawy.editor.core.enterprise.EnterpriseAdminStateModel
 import com.aymanelbanhawy.editor.core.enterprise.EnterpriseBootstrapMode
@@ -39,6 +42,7 @@ import com.aymanelbanhawy.editor.core.enterprise.LicensePlan
 import com.aymanelbanhawy.editor.core.enterprise.PrivacySettingsModel
 import com.aymanelbanhawy.editor.core.enterprise.TelemetryEventModel
 import com.aymanelbanhawy.editor.core.enterprise.TenantConfigurationModel
+import com.aymanelbanhawy.enterprisepdf.app.connectors.ConnectorSettingsSection
 import com.aymanelbanhawy.enterprisepdf.app.ui.IconTooltipButton
 
 @Composable
@@ -48,6 +52,8 @@ fun SettingsAdminSidebar(
     entitlements: EntitlementStateModel,
     telemetryEvents: List<TelemetryEventModel>,
     diagnosticsCount: Int,
+    connectorAccounts: List<ConnectorAccountModel>,
+    connectorJobs: List<ConnectorTransferJobModel>,
     onSignInPersonal: (String) -> Unit,
     onSignInEnterprise: (String, TenantConfigurationModel) -> Unit,
     onSignOut: () -> Unit,
@@ -57,6 +63,11 @@ fun SettingsAdminSidebar(
     onGenerateDiagnostics: () -> Unit,
     onRefreshRemoteState: () -> Unit,
     onFlushTelemetry: () -> Unit,
+    onSaveConnectorAccount: (ConnectorAccountDraft) -> Unit,
+    onTestConnectorConnection: (String) -> Unit,
+    onOpenConnectorDocument: (String, String, String) -> Unit,
+    onSyncConnectorTransfers: () -> Unit,
+    onCleanupConnectorCache: () -> Unit,
 ) {
     var personalName by remember(state.authSession.displayName) { mutableStateOf(state.authSession.displayName) }
     var enterpriseEmail by remember(state.authSession.email) { mutableStateOf(state.authSession.email) }
@@ -75,7 +86,7 @@ fun SettingsAdminSidebar(
                 Card {
                     Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("Authentication", style = MaterialTheme.typography.titleMedium)
-                        Text("Mode: ${state.authSession.mode.name} • ${state.authSession.status.name}")
+                        Text("Mode: ${state.authSession.mode.name} | ${state.authSession.status.name}")
                         Text("Policy: ${state.policySync.policyVersion}  ETag: ${state.policySync.policyEtag ?: "-"}")
                         OutlinedTextField(value = personalName, onValueChange = { personalName = it }, label = { Text("Personal display name") }, modifier = Modifier.fillMaxWidth())
                         OutlinedTextField(value = enterpriseEmail, onValueChange = { enterpriseEmail = it }, label = { Text("Enterprise email") }, modifier = Modifier.fillMaxWidth())
@@ -137,6 +148,17 @@ fun SettingsAdminSidebar(
                 }
             }
             item {
+                ConnectorSettingsSection(
+                    accounts = connectorAccounts,
+                    jobs = connectorJobs,
+                    onSaveAccount = onSaveConnectorAccount,
+                    onTestConnection = onTestConnectorConnection,
+                    onOpenRemoteDocument = onOpenConnectorDocument,
+                    onSyncTransfers = onSyncConnectorTransfers,
+                    onCleanupCache = onCleanupConnectorCache,
+                )
+            }
+            item {
                 Card {
                     Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Admin Policy", style = MaterialTheme.typography.titleMedium)
@@ -176,7 +198,7 @@ fun SettingsAdminSidebar(
                 Card {
                     Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(event.name, style = MaterialTheme.typography.labelLarge)
-                        Text("${event.category.name} • ${event.uploadState.name}", style = MaterialTheme.typography.bodySmall)
+                        Text("${event.category.name} | ${event.uploadState.name}", style = MaterialTheme.typography.bodySmall)
                         Text(event.failureMessage ?: "", style = MaterialTheme.typography.bodySmall)
                     }
                 }
@@ -192,4 +214,3 @@ private fun ToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
-

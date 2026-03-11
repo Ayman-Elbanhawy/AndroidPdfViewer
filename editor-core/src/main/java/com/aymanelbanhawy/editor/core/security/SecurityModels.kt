@@ -36,6 +36,10 @@ enum class AuditEventType {
     AiPromptCancelled,
     AiPromptCompleted,
     AiPromptFailed,
+    ConnectorOpened,
+    ConnectorSaved,
+    ConnectorShared,
+    ConnectorBlocked,
 }
 
 @Serializable

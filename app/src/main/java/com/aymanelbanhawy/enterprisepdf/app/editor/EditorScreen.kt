@@ -65,6 +65,7 @@ import com.aymanelbanhawy.aiassistant.core.AiProviderDraft
 import com.aymanelbanhawy.aiassistant.core.AssistantPrivacyMode
 import com.aymanelbanhawy.aiassistant.ui.AssistantSidebar
 import com.aymanelbanhawy.editor.core.collaboration.ReviewFilterModel
+import com.aymanelbanhawy.editor.core.connectors.ConnectorAccountDraft
 import com.aymanelbanhawy.editor.core.enterprise.AdminPolicyModel
 import com.aymanelbanhawy.editor.core.enterprise.LicensePlan
 import com.aymanelbanhawy.editor.core.enterprise.PrivacySettingsModel
@@ -82,6 +83,7 @@ import com.aymanelbanhawy.editor.core.model.TextAlignment
 import com.aymanelbanhawy.editor.core.scan.ScanImportOptions
 import com.aymanelbanhawy.editor.core.session.EditorSessionEvent
 import com.aymanelbanhawy.enterprisepdf.app.collaboration.ActivitySidebar
+import com.aymanelbanhawy.enterprisepdf.app.connectors.ConnectorExportDialog
 import com.aymanelbanhawy.enterprisepdf.app.collaboration.ReviewSidebar
 import com.aymanelbanhawy.enterprisepdf.app.enterprise.SettingsAdminSidebar
 import com.aymanelbanhawy.enterprisepdf.app.forms.FormsSidebar
@@ -200,6 +202,19 @@ fun EditorScreen(
     onGenerateDiagnosticsBundle: () -> Unit,
     onRefreshEnterpriseRemote: () -> Unit,
     onFlushEnterpriseTelemetry: () -> Unit,
+    onSaveConnectorAccount: (ConnectorAccountDraft) -> Unit,
+    onTestConnectorConnection: (String) -> Unit,
+    onOpenConnectorDocument: (String, String, String) -> Unit,
+    onSyncConnectorTransfers: () -> Unit,
+    onCleanupConnectorCache: () -> Unit,
+    onSaveToConnectorEditable: () -> Unit,
+    onSaveToConnectorFlattened: () -> Unit,
+    onShareToConnectorEditable: () -> Unit,
+    onDismissConnectorExportDialog: () -> Unit,
+    onConnectorExportAccountChanged: (String) -> Unit,
+    onConnectorExportRemotePathChanged: (String) -> Unit,
+    onConnectorExportDisplayNameChanged: (String) -> Unit,
+    onSubmitConnectorExport: () -> Unit,
     onRotatePage: () -> Unit,
     onReorderPages: () -> Unit,
     onUndo: () -> Unit,
@@ -245,6 +260,17 @@ fun EditorScreen(
             onPickImages = onPickScanImages,
         )
     }
+    state.connectorExportDialog?.let { dialog ->
+        ConnectorExportDialog(
+            state = dialog,
+            accounts = state.connectorAccounts,
+            onDismiss = onDismissConnectorExportDialog,
+            onAccountChanged = onConnectorExportAccountChanged,
+            onRemotePathChanged = onConnectorExportRemotePathChanged,
+            onDisplayNameChanged = onConnectorExportDisplayNameChanged,
+            onSubmit = onSubmitConnectorExport,
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -270,6 +296,9 @@ fun EditorScreen(
                     IconTooltipButton(icon = Icons.Outlined.MoreVert, tooltip = "More", onClick = { overflowExpanded = true })
                     DropdownMenu(expanded = overflowExpanded, onDismissRequest = { overflowExpanded = false }) {
                         DropdownMenuItem(text = { Text("Save Flattened") }, onClick = { overflowExpanded = false; onSaveFlattened() })
+                        DropdownMenuItem(text = { Text("Save Editable To Connector") }, onClick = { overflowExpanded = false; onSaveToConnectorEditable() })
+                        DropdownMenuItem(text = { Text("Save Flattened To Connector") }, onClick = { overflowExpanded = false; onSaveToConnectorFlattened() })
+                        DropdownMenuItem(text = { Text("Share To Connector") }, onClick = { overflowExpanded = false; onShareToConnectorEditable() })
                         DropdownMenuItem(text = { Text("Save Editable Copy") }, onClick = { overflowExpanded = false; onSaveAsEditable() })
                         DropdownMenuItem(text = { Text("Save Flattened Copy") }, onClick = { overflowExpanded = false; onSaveAsFlattened() })
                         DropdownMenuItem(text = { Text("Import Form Profile") }, onClick = { overflowExpanded = false; onImportProfile() })
@@ -434,6 +463,8 @@ fun EditorScreen(
                         entitlements = state.entitlements,
                         telemetryEvents = state.telemetryEvents,
                         diagnosticsCount = state.diagnosticsBundleCount,
+                        connectorAccounts = state.connectorAccounts,
+                        connectorJobs = state.connectorJobs,
                         onSignInPersonal = onSignInPersonal,
                         onSignInEnterprise = onSignInEnterprise,
                         onSignOut = onSignOutEnterprise,
@@ -443,6 +474,11 @@ fun EditorScreen(
                         onGenerateDiagnostics = onGenerateDiagnosticsBundle,
                         onRefreshRemoteState = onRefreshEnterpriseRemote,
                         onFlushTelemetry = onFlushEnterpriseTelemetry,
+                        onSaveConnectorAccount = onSaveConnectorAccount,
+                        onTestConnectorConnection = onTestConnectorConnection,
+                        onOpenConnectorDocument = onOpenConnectorDocument,
+                        onSyncConnectorTransfers = onSyncConnectorTransfers,
+                        onCleanupConnectorCache = onCleanupConnectorCache,
                     )
                 }
                 state.activePanel == WorkspacePanel.Protect && state.annotationSidebarVisible -> {
