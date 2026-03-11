@@ -49,13 +49,32 @@ class RoomSearchIndexStore(
     }
 
     suspend fun saveOcrIndex(documentKey: String, pageIndex: Int, pageText: String, blocks: List<ExtractedTextBlock>) {
-        searchIndexDao.updateOcrPayload(
-            documentKey = documentKey,
-            pageIndex = pageIndex,
-            ocrText = pageText,
-            ocrBlocksJson = encodeBlocks(blocks.map { it.copy(source = SearchContentSource.Ocr) }),
-            updatedAtEpochMillis = System.currentTimeMillis(),
-        )
+        val now = System.currentTimeMillis()
+        val current = searchIndexDao.indexForDocument(documentKey).firstOrNull { it.pageIndex == pageIndex }
+        val ocrBlocks = encodeBlocks(blocks.map { it.copy(source = SearchContentSource.Ocr) })
+        if (current == null) {
+            searchIndexDao.upsertAll(
+                listOf(
+                    SearchIndexEntity(
+                        documentKey = documentKey,
+                        pageIndex = pageIndex,
+                        pageText = "",
+                        textBlocksJson = encodeBlocks(emptyList()),
+                        ocrText = pageText,
+                        ocrBlocksJson = ocrBlocks,
+                        updatedAtEpochMillis = now,
+                    ),
+                ),
+            )
+        } else {
+            searchIndexDao.updateOcrPayload(
+                documentKey = documentKey,
+                pageIndex = pageIndex,
+                ocrText = pageText,
+                ocrBlocksJson = ocrBlocks,
+                updatedAtEpochMillis = now,
+            )
+        }
     }
 
     suspend fun rememberSearch(documentKey: String, query: String, keepCount: Int = 8) {

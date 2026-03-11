@@ -8,6 +8,7 @@ import com.aymanelbanhawy.editor.core.collaboration.CollaborationRepository
 import com.aymanelbanhawy.editor.core.enterprise.EnterpriseAdminRepository
 import com.aymanelbanhawy.editor.core.forms.FormSupportRepository
 import com.aymanelbanhawy.editor.core.model.OpenDocumentRequest
+import com.aymanelbanhawy.editor.core.ocr.OcrJobPipeline
 import com.aymanelbanhawy.editor.core.organize.PageThumbnailRepository
 import com.aymanelbanhawy.editor.core.repository.DocumentRepository
 import com.aymanelbanhawy.editor.core.scan.ScanImportService
@@ -27,6 +28,7 @@ class AppContainer(
     val documentSearchService: DocumentSearchService get() = editorCoreContainer.documentSearchService
     val searchIndexScheduler: SearchIndexScheduler get() = editorCoreContainer.searchIndexScheduler
     val scanImportService: ScanImportService get() = editorCoreContainer.scanImportService
+    val ocrJobPipeline: OcrJobPipeline get() = editorCoreContainer.ocrJobPipeline
     val collaborationRepository: CollaborationRepository get() = editorCoreContainer.collaborationRepository
     val securityRepository: SecurityRepository get() = editorCoreContainer.securityRepository
     val enterpriseAdminRepository: EnterpriseAdminRepository get() = editorCoreContainer.enterpriseAdminRepository
@@ -47,3 +49,5 @@ class AppContainer(
         return OpenDocumentRequest.FromAsset(assetName = "sample.pdf", displayName = "sample.pdf")
     }
 }
+
+

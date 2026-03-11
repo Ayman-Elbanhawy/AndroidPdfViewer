@@ -6,29 +6,53 @@ import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.aymanelbanhawy.editor.core.data.OcrJobDao
 import com.aymanelbanhawy.editor.core.data.OcrJobEntity
+import com.aymanelbanhawy.editor.core.data.OcrSettingsDao
+import com.aymanelbanhawy.editor.core.data.OcrSettingsEntity
 import com.aymanelbanhawy.editor.core.search.DocumentSearchService
+import com.aymanelbanhawy.editor.core.search.ExtractedTextBlock
 import com.aymanelbanhawy.editor.core.work.OcrWorker
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
-import java.util.UUID
 
 class OcrJobPipeline(
     private val ocrJobDao: OcrJobDao,
+    private val ocrSettingsDao: OcrSettingsDao,
     private val searchService: DocumentSearchService,
     private val workManager: WorkManager,
     private val json: Json,
+    private val ocrSessionStore: OcrSessionStore,
 ) {
-    suspend fun enqueue(documentKey: String, jobs: List<QueuedOcrPage>) {
+    suspend fun enqueue(documentKey: String, jobs: List<QueuedOcrPage>, settings: OcrSettingsModel) {
+        saveSettings(settings)
         val now = System.currentTimeMillis()
         ocrJobDao.upsertAll(
             jobs.map { job ->
-                OcrJobEntity(
-                    id = UUID.randomUUID().toString(),
+                val existing = ocrJobDao.jobForPage(documentKey, job.pageIndex)
+                (existing ?: OcrJobEntity(
+                    id = buildJobId(documentKey, job.pageIndex),
                     documentKey = documentKey,
                     pageIndex = job.pageIndex,
                     imagePath = job.imagePath,
-                    status = OcrJobStatus.Queued.name,
+                    status = OcrJobStatus.Pending.name,
                     createdAtEpochMillis = now,
+                    updatedAtEpochMillis = now,
+                )).copy(
+                    imagePath = job.imagePath,
+                    status = OcrJobStatus.Pending.name,
+                    progressPercent = 0,
+                    attemptCount = 0,
+                    maxAttempts = settings.maxRetryCount.coerceAtLeast(1),
+                    resultText = null,
+                    resultBlocksJson = null,
+                    resultPageJson = null,
+                    diagnosticsJson = null,
+                    settingsJson = json.encodeToString(OcrSettingsModel.serializer(), settings),
+                    preprocessedImagePath = null,
+                    errorMessage = null,
+                    startedAtEpochMillis = null,
+                    completedAtEpochMillis = null,
                     updatedAtEpochMillis = now,
                 )
             },
@@ -36,22 +60,144 @@ class OcrJobPipeline(
         OcrWorker.enqueue(workManager, documentKey)
     }
 
-    suspend fun complete(job: OcrJobEntity, result: OcrEngineResult) {
+    fun observe(documentKey: String): Flow<List<OcrJobSummary>> {
+        return ocrJobDao.observeJobsForDocument(documentKey).map { entities -> entities.map(::toSummary) }
+    }
+
+    suspend fun loadSettings(): OcrSettingsModel {
+        return ocrSettingsDao.get()?.let { json.decodeFromString(OcrSettingsModel.serializer(), it.payloadJson) }
+            ?: OcrSettingsModel()
+    }
+
+    suspend fun saveSettings(settings: OcrSettingsModel) {
+        ocrSettingsDao.upsert(
+            OcrSettingsEntity(
+                payloadJson = json.encodeToString(OcrSettingsModel.serializer(), settings),
+                updatedAtEpochMillis = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    suspend fun pendingWork(documentKey: String, limit: Int, staleAfterMillis: Long): List<OcrJobEntity> {
+        return ocrJobDao.pendingOrResumable(documentKey, System.currentTimeMillis() - staleAfterMillis, limit)
+    }
+
+    suspend fun markRunning(job: OcrJobEntity, progressPercent: Int = 8, preprocessedImagePath: String? = null): OcrJobEntity {
+        val updated = job.copy(
+            status = OcrJobStatus.Running.name,
+            progressPercent = progressPercent,
+            preprocessedImagePath = preprocessedImagePath ?: job.preprocessedImagePath,
+            attemptCount = if (job.status == OcrJobStatus.Running.name) job.attemptCount else job.attemptCount + 1,
+            startedAtEpochMillis = job.startedAtEpochMillis ?: System.currentTimeMillis(),
+            updatedAtEpochMillis = System.currentTimeMillis(),
+        )
+        ocrJobDao.upsert(updated)
+        return updated
+    }
+
+    suspend fun updateProgress(job: OcrJobEntity, progressPercent: Int, preprocessedImagePath: String? = null) {
+        ocrJobDao.upsert(
+            job.copy(
+                progressPercent = progressPercent.coerceIn(0, 99),
+                preprocessedImagePath = preprocessedImagePath ?: job.preprocessedImagePath,
+                updatedAtEpochMillis = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    suspend fun complete(job: OcrJobEntity, result: OcrEngineResult, settings: OcrSettingsModel) {
         val now = System.currentTimeMillis()
+        val blocks = result.blocks
         ocrJobDao.upsert(
             job.copy(
                 status = OcrJobStatus.Completed.name,
+                progressPercent = 100,
                 resultText = result.pageText,
-                resultBlocksJson = json.encodeToString(ListSerializer(com.aymanelbanhawy.editor.core.search.ExtractedTextBlock.serializer()), result.blocks),
-                errorMessage = result.warningMessage,
+                resultBlocksJson = json.encodeToString(ListSerializer(ExtractedTextBlock.serializer()), blocks),
+                resultPageJson = json.encodeToString(OcrPageContent.serializer(), result.page),
+                diagnosticsJson = result.diagnostics?.let { json.encodeToString(OcrEngineDiagnostics.serializer(), it) },
+                settingsJson = json.encodeToString(OcrSettingsModel.serializer(), settings),
+                preprocessedImagePath = result.preprocessedImagePath,
+                errorMessage = result.diagnostics?.message,
+                completedAtEpochMillis = now,
                 updatedAtEpochMillis = now,
             ),
         )
-        searchService.attachOcrResult(job.documentKey, job.pageIndex, result.pageText, result.blocks)
+        searchService.attachOcrResult(job.documentKey, job.pageIndex, result.pageText, blocks)
+        ocrSessionStore.persistPage(job.documentKey, settings, result.page)
     }
 
-    suspend fun fail(job: OcrJobEntity, message: String) {
-        ocrJobDao.upsert(job.copy(status = OcrJobStatus.Failed.name, errorMessage = message, updatedAtEpochMillis = System.currentTimeMillis()))
+    suspend fun fail(job: OcrJobEntity, diagnostics: OcrEngineDiagnostics) {
+        val canRetry = diagnostics.retryable && job.attemptCount < job.maxAttempts
+        ocrJobDao.upsert(
+            job.copy(
+                status = if (canRetry) OcrJobStatus.RetryScheduled.name else OcrJobStatus.Failed.name,
+                progressPercent = 0,
+                diagnosticsJson = json.encodeToString(OcrEngineDiagnostics.serializer(), diagnostics),
+                errorMessage = diagnostics.message,
+                completedAtEpochMillis = if (canRetry) null else System.currentTimeMillis(),
+                updatedAtEpochMillis = System.currentTimeMillis(),
+            ),
+        )
+        if (canRetry) {
+            OcrWorker.enqueue(workManager, job.documentKey)
+        }
+    }
+
+    suspend fun rerun(documentKey: String, pageIndex: Int? = null) {
+        val settings = loadSettings()
+        val jobs = ocrJobDao.jobsForDocument(documentKey)
+            .filter { pageIndex == null || it.pageIndex == pageIndex }
+            .map {
+                it.copy(
+                    status = OcrJobStatus.Pending.name,
+                    progressPercent = 0,
+                    attemptCount = 0,
+                    maxAttempts = settings.maxRetryCount.coerceAtLeast(1),
+                    resultText = null,
+                    resultBlocksJson = null,
+                    resultPageJson = null,
+                    diagnosticsJson = null,
+                    preprocessedImagePath = null,
+                    errorMessage = null,
+                    startedAtEpochMillis = null,
+                    completedAtEpochMillis = null,
+                    settingsJson = json.encodeToString(OcrSettingsModel.serializer(), settings),
+                    updatedAtEpochMillis = System.currentTimeMillis(),
+                )
+            }
+        if (jobs.isNotEmpty()) {
+            ocrJobDao.upsertAll(jobs)
+            OcrWorker.enqueue(workManager, documentKey)
+        }
+    }
+
+    private fun toSummary(entity: OcrJobEntity): OcrJobSummary {
+        val diagnostics = entity.diagnosticsJson?.let {
+            runCatching { json.decodeFromString(OcrEngineDiagnostics.serializer(), it) }.getOrNull()
+        }
+        return OcrJobSummary(
+            id = entity.id,
+            documentKey = entity.documentKey,
+            pageIndex = entity.pageIndex,
+            status = runCatching { OcrJobStatus.valueOf(entity.status) }.getOrDefault(OcrJobStatus.Pending),
+            progressPercent = entity.progressPercent,
+            attemptCount = entity.attemptCount,
+            maxAttempts = entity.maxAttempts,
+            imagePath = entity.imagePath,
+            preprocessedImagePath = entity.preprocessedImagePath,
+            pageText = entity.resultText,
+            errorMessage = entity.errorMessage,
+            diagnostics = buildList {
+                diagnostics?.message?.let(::add)
+                addAll(diagnostics?.details.orEmpty())
+            },
+            updatedAtEpochMillis = entity.updatedAtEpochMillis,
+        )
+    }
+
+    companion object {
+        fun buildJobId(documentKey: String, pageIndex: Int): String = "$documentKey::$pageIndex"
     }
 }
 

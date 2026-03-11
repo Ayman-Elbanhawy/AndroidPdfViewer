@@ -8,6 +8,7 @@ import com.aymanelbanhawy.editor.core.model.DocumentModel
 import com.aymanelbanhawy.editor.core.model.DocumentSourceType
 import com.aymanelbanhawy.editor.core.model.PageModel
 import com.aymanelbanhawy.editor.core.model.PdfDocumentRef
+import com.aymanelbanhawy.editor.core.ocr.OcrSessionStore
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -34,6 +35,7 @@ class DefaultDocumentSearchServiceTest {
                     ),
                 ),
             ),
+            ocrSessionStore = OcrSessionStore(json),
         )
 
         val result = service.search(document(), "service")
@@ -51,6 +53,7 @@ class DefaultDocumentSearchServiceTest {
         val service = DefaultDocumentSearchService(
             store = RoomSearchIndexStore(FakeSearchIndexDao(), FakeRecentSearchDao(), json),
             extractionService = extractionService,
+            ocrSessionStore = OcrSessionStore(json),
         )
 
         service.ensureIndex(document(), forceRefresh = false)
@@ -75,6 +78,7 @@ class DefaultDocumentSearchServiceTest {
                     ),
                 ),
             ),
+            ocrSessionStore = OcrSessionStore(json),
         )
 
         val selection = service.selectionForBounds(document(), 0, bounds(0.08f, 0.08f, 0.42f, 0.22f))

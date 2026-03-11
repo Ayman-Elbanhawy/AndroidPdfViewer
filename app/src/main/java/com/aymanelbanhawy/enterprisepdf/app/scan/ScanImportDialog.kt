@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.aymanelbanhawy.editor.core.ocr.OcrModelDeliveryMode
 import com.aymanelbanhawy.editor.core.scan.ScanImportOptions
 
 @Composable
@@ -35,11 +36,32 @@ fun ScanImportDialog(
                     onValueChange = { onOptionsChanged(options.copy(displayName = it)) },
                     label = { Text("Output PDF name") },
                 )
-                ScanOptionRow("Auto-crop", options.autoCrop) { onOptionsChanged(options.copy(autoCrop = it)) }
-                ScanOptionRow("Deskew / orient", options.deskew) { onOptionsChanged(options.copy(deskew = it)) }
-                ScanOptionRow("Cleanup", options.cleanup) { onOptionsChanged(options.copy(cleanup = it)) }
+                ScanOptionRow("Fix orientation", options.ocrSettings.preprocessing.fixOrientation) {
+                    onOptionsChanged(options.copy(ocrSettings = options.ocrSettings.copy(preprocessing = options.ocrSettings.preprocessing.copy(fixOrientation = it))))
+                }
+                ScanOptionRow("Deskew", options.ocrSettings.preprocessing.deskew) {
+                    onOptionsChanged(options.copy(ocrSettings = options.ocrSettings.copy(preprocessing = options.ocrSettings.preprocessing.copy(deskew = it))))
+                }
+                ScanOptionRow("Auto-crop", options.ocrSettings.preprocessing.autoCrop) {
+                    onOptionsChanged(options.copy(ocrSettings = options.ocrSettings.copy(preprocessing = options.ocrSettings.preprocessing.copy(autoCrop = it))))
+                }
+                ScanOptionRow("Contrast cleanup", options.ocrSettings.preprocessing.contrastCleanup) {
+                    onOptionsChanged(options.copy(ocrSettings = options.ocrSettings.copy(preprocessing = options.ocrSettings.preprocessing.copy(contrastCleanup = it))))
+                }
+                ScanOptionRow("Grayscale", options.ocrSettings.preprocessing.grayscale) {
+                    onOptionsChanged(options.copy(ocrSettings = options.ocrSettings.copy(preprocessing = options.ocrSettings.preprocessing.copy(grayscale = it))))
+                }
+                ScanOptionRow("Binarize", options.ocrSettings.preprocessing.binarize) {
+                    onOptionsChanged(options.copy(ocrSettings = options.ocrSettings.copy(preprocessing = options.ocrSettings.preprocessing.copy(binarize = it))))
+                }
+                ScanOptionRow("Embed OCR session data on export", options.ocrSettings.embedSessionDataOnExport) {
+                    onOptionsChanged(options.copy(ocrSettings = options.ocrSettings.copy(embedSessionDataOnExport = it)))
+                }
+                ScanOptionRow("Platform-managed delivery hint", options.ocrSettings.deliveryMode == OcrModelDeliveryMode.PlatformManaged) {
+                    onOptionsChanged(options.copy(ocrSettings = options.ocrSettings.copy(deliveryMode = if (it) OcrModelDeliveryMode.PlatformManaged else OcrModelDeliveryMode.Bundled)))
+                }
                 Text(
-                    "Imported images are normalized into a PDF session and queued for local OCR indexing.",
+                    "Imported pages are cleaned locally, queued for ML Kit OCR, and saved as a searchable session with persisted OCR sidecar data.",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }

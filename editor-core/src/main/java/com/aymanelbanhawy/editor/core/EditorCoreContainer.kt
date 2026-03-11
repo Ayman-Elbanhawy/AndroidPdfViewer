@@ -1,18 +1,19 @@
 package com.aymanelbanhawy.editor.core
 
 import android.content.Context
-import androidx.room.Room
 import androidx.work.WorkManager
 import com.aymanelbanhawy.editor.core.collaboration.CollaborationConflictResolver
 import com.aymanelbanhawy.editor.core.collaboration.CollaborationRepository
 import com.aymanelbanhawy.editor.core.collaboration.DefaultCollaborationRepository
 import com.aymanelbanhawy.editor.core.collaboration.InMemoryCollaborationRemoteDataSource
 import com.aymanelbanhawy.editor.core.data.PdfWorkspaceDatabase
+import com.aymanelbanhawy.editor.core.data.createEditorCoreDatabase
 import com.aymanelbanhawy.editor.core.enterprise.DefaultEnterpriseAdminRepository
 import com.aymanelbanhawy.editor.core.enterprise.EnterpriseAdminRepository
 import com.aymanelbanhawy.editor.core.forms.DefaultFormSupportRepository
 import com.aymanelbanhawy.editor.core.forms.FormSupportRepository
 import com.aymanelbanhawy.editor.core.ocr.OcrJobPipeline
+import com.aymanelbanhawy.editor.core.ocr.OcrSessionStore
 import com.aymanelbanhawy.editor.core.organize.DefaultPageThumbnailRepository
 import com.aymanelbanhawy.editor.core.organize.PageThumbnailRepository
 import com.aymanelbanhawy.editor.core.repository.DefaultDocumentRepository
@@ -37,17 +38,14 @@ class EditorCoreContainer(
     context: Context,
 ) {
     val appContext: Context = context.applicationContext
-    private val database: PdfWorkspaceDatabase = Room.databaseBuilder(
-        appContext,
-        PdfWorkspaceDatabase::class.java,
-        DATABASE_NAME,
-    ).fallbackToDestructiveMigration().build()
+    private val database: PdfWorkspaceDatabase = createEditorCoreDatabase(appContext)
     private val workManager: WorkManager = WorkManager.getInstance(appContext)
     private val json: Json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
         classDiscriminator = "_type"
     }
+    private val ocrSessionStore = OcrSessionStore(json)
     val enterpriseAdminRepository: EnterpriseAdminRepository = DefaultEnterpriseAdminRepository(
         context = appContext,
         settingsDao = database.enterpriseSettingsDao(),
@@ -61,6 +59,21 @@ class EditorCoreContainer(
         auditTrailEventDao = database.auditTrailEventDao(),
         json = json,
     )
+    private val searchIndexStore = RoomSearchIndexStore(
+        searchIndexDao = database.searchIndexDao(),
+        recentSearchDao = database.recentSearchDao(),
+        json = json,
+    )
+    private val extractionService = PdfBoxTextExtractionService()
+    val documentSearchService: DocumentSearchService = DefaultDocumentSearchService(searchIndexStore, extractionService, ocrSessionStore)
+    val ocrJobPipeline: OcrJobPipeline = OcrJobPipeline(
+        ocrJobDao = database.ocrJobDao(),
+        ocrSettingsDao = database.ocrSettingsDao(),
+        searchService = documentSearchService,
+        workManager = workManager,
+        json = json,
+        ocrSessionStore = ocrSessionStore,
+    )
     val documentRepository: DocumentRepository = DefaultDocumentRepository(
         context = appContext,
         recentDocumentDao = database.recentDocumentDao(),
@@ -68,6 +81,7 @@ class EditorCoreContainer(
         editHistoryMetadataDao = database.editHistoryMetadataDao(),
         documentSecurityDao = database.documentSecurityDao(),
         secureFileCipher = AndroidSecureFileCipher(appContext),
+        ocrSessionStore = ocrSessionStore,
         json = json,
     )
     val pageThumbnailRepository: PageThumbnailRepository = DefaultPageThumbnailRepository(appContext)
@@ -76,20 +90,7 @@ class EditorCoreContainer(
         profileDao = database.formProfileDao(),
         savedSignatureDao = database.savedSignatureDao(),
     )
-    private val searchIndexStore = RoomSearchIndexStore(
-        searchIndexDao = database.searchIndexDao(),
-        recentSearchDao = database.recentSearchDao(),
-        json = json,
-    )
-    private val extractionService = PdfBoxTextExtractionService()
-    val documentSearchService: DocumentSearchService = DefaultDocumentSearchService(searchIndexStore, extractionService)
     val searchIndexScheduler: SearchIndexScheduler = SearchIndexScheduler(workManager)
-    private val ocrJobPipeline = OcrJobPipeline(
-        ocrJobDao = database.ocrJobDao(),
-        searchService = documentSearchService,
-        workManager = workManager,
-        json = json,
-    )
     val scanImportService: ScanImportService = DefaultScanImportService(appContext, ocrJobPipeline)
     val collaborationRepository: CollaborationRepository = DefaultCollaborationRepository(
         context = appContext,
@@ -110,9 +111,4 @@ class EditorCoreContainer(
     }
 
     fun newSession(): EditorSession = DefaultEditorSession(documentRepository, autosaveScheduler)
-
-    companion object {
-        const val DATABASE_NAME: String = "enterprise-editor.db"
-    }
 }
-

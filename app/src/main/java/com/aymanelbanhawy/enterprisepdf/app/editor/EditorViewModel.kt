@@ -67,6 +67,9 @@ import com.aymanelbanhawy.editor.core.model.PageEditModel
 import com.aymanelbanhawy.editor.core.model.TextAlignment
 import com.aymanelbanhawy.editor.core.model.TextBoxEditModel
 import com.aymanelbanhawy.editor.core.model.duplicated
+import com.aymanelbanhawy.editor.core.ocr.OcrJobSummary
+import com.aymanelbanhawy.editor.core.ocr.OcrSettingsModel
+import com.aymanelbanhawy.editor.core.ocr.OcrJobStatus
 import com.aymanelbanhawy.editor.core.organize.SplitMode
 import com.aymanelbanhawy.editor.core.organize.SplitRequest
 import com.aymanelbanhawy.editor.core.organize.ThumbnailDescriptor
@@ -98,7 +101,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.UUID
@@ -137,6 +142,8 @@ data class EditorUiState(
     val isSearchIndexing: Boolean = false,
     val scanImportVisible: Boolean = false,
     val scanImportOptions: ScanImportOptions = ScanImportOptions(),
+    val ocrJobs: List<OcrJobSummary> = emptyList(),
+    val ocrSettings: OcrSettingsModel = OcrSettingsModel(),
     val shareLinks: List<ShareLinkModel> = emptyList(),
     val reviewThreads: List<ReviewThreadModel> = emptyList(),
     val versionSnapshots: List<VersionSnapshotModel> = emptyList(),
@@ -197,6 +204,8 @@ class EditorViewModel(
     private val isSearchIndexing = MutableStateFlow(false)
     private val scanImportVisible = MutableStateFlow(false)
     private val scanImportOptions = MutableStateFlow(ScanImportOptions())
+    private val ocrJobs = MutableStateFlow(emptyList<OcrJobSummary>())
+    private val ocrSettings = MutableStateFlow(OcrSettingsModel())
     private val shareLinks = MutableStateFlow(emptyList<ShareLinkModel>())
     private val reviewThreads = MutableStateFlow(emptyList<ReviewThreadModel>())
     private val versionSnapshots = MutableStateFlow(emptyList<VersionSnapshotModel>())
@@ -213,6 +222,7 @@ class EditorViewModel(
     private val assistantState = MutableStateFlow(AssistantUiState())
     private val localEvents = MutableSharedFlow<EditorSessionEvent>(extraBufferCapacity = 16)
     private val indexingPolicy = IndexingPolicy()
+    private var ocrObservationJob: Job? = null
 
     val uiState: StateFlow<EditorUiState> = combine(
         session.state,
@@ -1359,6 +1369,16 @@ class EditorViewModel(
 }
 
 private fun Set<Int>.toggle(index: Int): Set<Int> = if (index in this) this - index else this + index
+
+
+
+
+
+
+
+
+
+
 
 
 

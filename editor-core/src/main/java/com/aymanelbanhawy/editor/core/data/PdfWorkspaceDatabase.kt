@@ -13,6 +13,7 @@ import androidx.room.RoomDatabase
         RecentSearchEntity::class,
         SearchIndexEntity::class,
         OcrJobEntity::class,
+        OcrSettingsEntity::class,
         ShareLinkEntity::class,
         ReviewThreadEntity::class,
         ReviewCommentEntity::class,
@@ -25,7 +26,7 @@ import androidx.room.RoomDatabase
         EnterpriseSettingsEntity::class,
         TelemetryEventEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = false,
 )
 abstract class PdfWorkspaceDatabase : RoomDatabase() {
@@ -37,6 +38,7 @@ abstract class PdfWorkspaceDatabase : RoomDatabase() {
     abstract fun recentSearchDao(): RecentSearchDao
     abstract fun searchIndexDao(): SearchIndexDao
     abstract fun ocrJobDao(): OcrJobDao
+    abstract fun ocrSettingsDao(): OcrSettingsDao
     abstract fun shareLinkDao(): ShareLinkDao
     abstract fun reviewThreadDao(): ReviewThreadDao
     abstract fun reviewCommentDao(): ReviewCommentDao

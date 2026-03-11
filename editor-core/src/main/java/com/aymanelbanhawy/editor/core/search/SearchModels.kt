@@ -15,6 +15,11 @@ data class ExtractedTextBlock(
     val text: String,
     val bounds: NormalizedRect,
     val source: SearchContentSource = SearchContentSource.EmbeddedText,
+    val confidence: Float? = null,
+    val languageTag: String? = null,
+    val scriptTag: String? = null,
+    val lineCount: Int = 1,
+    val elementCount: Int = 0,
 )
 
 @Serializable

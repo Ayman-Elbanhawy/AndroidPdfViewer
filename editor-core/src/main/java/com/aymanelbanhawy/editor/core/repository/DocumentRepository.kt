@@ -31,6 +31,7 @@ import com.aymanelbanhawy.editor.core.model.PageModel
 import com.aymanelbanhawy.editor.core.model.PdfDocumentRef
 import com.aymanelbanhawy.editor.core.model.SelectionModel
 import com.aymanelbanhawy.editor.core.model.UndoRedoState
+import com.aymanelbanhawy.editor.core.ocr.OcrSessionStore
 import com.aymanelbanhawy.editor.core.organize.SplitPlanner
 import com.aymanelbanhawy.editor.core.security.AndroidSecureFileCipher
 import com.aymanelbanhawy.editor.core.security.MetadataScrubOptionsModel
@@ -101,6 +102,7 @@ class DefaultDocumentRepository(
         encodeDefaults = true
         classDiscriminator = "_type"
     },
+    private val ocrSessionStore: OcrSessionStore = OcrSessionStore(json),
 ) : DocumentRepository {
 
     init {
@@ -198,6 +200,7 @@ class DefaultDocumentRepository(
             else -> workingFile
         }
         annotationPersistenceGateway.persist(document, destination, exportMode)
+        ocrSessionStore.copySidecar(document.documentRef, destination)
         clearDraft(ref.sourceKey)
         return document.copy(dirtyState = DirtyState(isDirty = false, saveMessage = "Saved (${exportMode.name.lowercase()})"), lastSavedAtEpochMillis = System.currentTimeMillis())
     }
@@ -208,6 +211,7 @@ class DefaultDocumentRepository(
         applyFormData(document, destination, exportMode)
         pdfWriteEngine.persist(document, destination, exportMode)
         annotationPersistenceGateway.persist(document, destination, exportMode)
+        ocrSessionStore.copySidecar(document.documentRef, destination)
         clearDraft(document.documentRef.sourceKey)
         val updatedRef = document.documentRef.copy(uriString = Uri.fromFile(destination).toString(), displayName = destination.name, sourceType = DocumentSourceType.File, sourceKey = destination.absolutePath, workingCopyPath = destination.absolutePath)
         return document.copy(documentRef = updatedRef, dirtyState = DirtyState(isDirty = false, saveMessage = "Saved as ${destination.name} (${exportMode.name.lowercase()})"), lastSavedAtEpochMillis = System.currentTimeMillis())
@@ -234,6 +238,7 @@ class DefaultDocumentRepository(
             applyFormData(extracted, file, AnnotationExportMode.Editable)
             pdfWriteEngine.persist(extracted, file, AnnotationExportMode.Editable)
             annotationPersistenceGateway.persist(extracted, file, AnnotationExportMode.Editable)
+            ocrSessionStore.copySidecar(document.documentRef, file)
             file
         }
     }
@@ -575,6 +580,11 @@ private data class AnnotationSidecarPayload(
     val annotations: List<AnnotationModel>,
     val updatedAtEpochMillis: Long,
 )
+
+
+
+
+
 
 
 

@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface OcrJobDao {
@@ -28,10 +29,33 @@ interface OcrJobDao {
     @Query(
         """
         SELECT * FROM ocr_jobs
-        WHERE status IN ('Pending', 'Queued')
-        ORDER BY updatedAtEpochMillis ASC
+        WHERE documentKey = :documentKey
+        ORDER BY pageIndex ASC, createdAtEpochMillis ASC
+        """,
+    )
+    fun observeJobsForDocument(documentKey: String): Flow<List<OcrJobEntity>>
+
+    @Query(
+        """
+        SELECT * FROM ocr_jobs
+        WHERE documentKey = :documentKey
+          AND pageIndex = :pageIndex
+        LIMIT 1
+        """,
+    )
+    suspend fun jobForPage(documentKey: String, pageIndex: Int): OcrJobEntity?
+
+    @Query(
+        """
+        SELECT * FROM ocr_jobs
+        WHERE documentKey = :documentKey
+          AND (
+                status IN ('Pending', 'RetryScheduled')
+                OR (status = 'Running' AND updatedAtEpochMillis < :staleBeforeEpochMillis)
+          )
+        ORDER BY pageIndex ASC, updatedAtEpochMillis ASC
         LIMIT :limit
         """,
     )
-    suspend fun pending(limit: Int): List<OcrJobEntity>
+    suspend fun pendingOrResumable(documentKey: String, staleBeforeEpochMillis: Long, limit: Int): List<OcrJobEntity>
 }

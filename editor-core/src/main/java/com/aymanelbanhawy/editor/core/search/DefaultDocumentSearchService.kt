@@ -2,21 +2,25 @@ package com.aymanelbanhawy.editor.core.search
 
 import com.aymanelbanhawy.editor.core.model.DocumentModel
 import com.aymanelbanhawy.editor.core.model.NormalizedRect
+import com.aymanelbanhawy.editor.core.ocr.OcrSessionStore
 import kotlin.math.max
 import kotlin.math.min
 
 class DefaultDocumentSearchService(
     private val store: RoomSearchIndexStore,
     private val extractionService: TextExtractionService,
+    private val ocrSessionStore: OcrSessionStore,
 ) : DocumentSearchService {
 
     override suspend fun ensureIndex(document: DocumentModel, forceRefresh: Boolean): List<IndexedPageContent> {
         val existing = if (forceRefresh) emptyList() else store.indexedPages(document.documentRef.sourceKey)
         if (!forceRefresh && existing.size == document.pageCount && existing.isNotEmpty()) {
-            return existing
+            applyPersistedOcr(document)
+            return store.indexedPages(document.documentRef.sourceKey)
         }
         val extracted = extractionService.extract(document.documentRef)
         store.saveEmbeddedIndex(document.documentRef.sourceKey, extracted)
+        applyPersistedOcr(document)
         return store.indexedPages(document.documentRef.sourceKey)
     }
 
@@ -75,6 +79,14 @@ class DefaultDocumentSearchService(
 
     override suspend fun attachOcrResult(documentKey: String, pageIndex: Int, pageText: String, blocks: List<ExtractedTextBlock>) {
         store.saveOcrIndex(documentKey, pageIndex, pageText, blocks)
+    }
+
+    private suspend fun applyPersistedOcr(document: DocumentModel) {
+        ocrSessionStore.load(document.documentRef)
+            ?.pages
+            ?.forEach { page ->
+                store.saveOcrIndex(document.documentRef.sourceKey, page.pageIndex, page.text, page.flattenedSearchBlocks())
+            }
     }
 
     private fun preview(text: String, query: String): String {
