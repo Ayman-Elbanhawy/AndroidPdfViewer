@@ -9,13 +9,13 @@ import com.aymanelbanhawy.editor.core.data.FormProfileDao
 import com.aymanelbanhawy.editor.core.data.FormProfileEntity
 import com.aymanelbanhawy.editor.core.data.SavedSignatureDao
 import com.aymanelbanhawy.editor.core.data.SavedSignatureEntity
+import java.io.File
+import java.io.FileOutputStream
+import java.util.UUID
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
-import java.io.File
-import java.io.FileOutputStream
-import java.util.UUID
 
 interface FormSupportRepository {
     suspend fun loadProfiles(): List<FormProfileModel>
@@ -63,7 +63,18 @@ class DefaultFormSupportRepository(
 
     override suspend fun loadSignatures(): List<SavedSignatureModel> = withContext(ioDispatcher) {
         savedSignatureDao.all().map { entity ->
-            SavedSignatureModel(entity.id, entity.name, SignatureKind.valueOf(entity.kind), entity.imagePath, entity.createdAtEpochMillis)
+            SavedSignatureModel(
+                id = entity.id,
+                name = entity.name,
+                kind = SignatureKind.valueOf(entity.kind),
+                imagePath = entity.imagePath,
+                createdAtEpochMillis = entity.createdAtEpochMillis,
+                sourceType = SignatureSourceType.valueOf(entity.sourceType),
+                signingIdentityId = entity.signingIdentityId,
+                signerDisplayName = entity.signerDisplayName,
+                certificateSubject = entity.certificateSubject,
+                certificateSha256 = entity.certificateSha256,
+            )
         }
     }
 
@@ -73,8 +84,27 @@ class DefaultFormSupportRepository(
         renderCapture(capture).also { bitmap ->
             FileOutputStream(imageFile).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
-        val model = SavedSignatureModel(id, name, kind, imageFile.absolutePath, System.currentTimeMillis())
-        savedSignatureDao.upsert(SavedSignatureEntity(model.id, model.name, model.kind.name, model.imagePath, model.createdAtEpochMillis))
+        val model = SavedSignatureModel(
+            id = id,
+            name = name,
+            kind = kind,
+            imagePath = imageFile.absolutePath,
+            createdAtEpochMillis = System.currentTimeMillis(),
+        )
+        savedSignatureDao.upsert(
+            SavedSignatureEntity(
+                id = model.id,
+                name = model.name,
+                kind = model.kind.name,
+                imagePath = model.imagePath,
+                createdAtEpochMillis = model.createdAtEpochMillis,
+                sourceType = model.sourceType.name,
+                signingIdentityId = model.signingIdentityId,
+                signerDisplayName = model.signerDisplayName,
+                certificateSubject = model.certificateSubject,
+                certificateSha256 = model.certificateSha256,
+            ),
+        )
         model
     }
 
@@ -99,4 +129,3 @@ class DefaultFormSupportRepository(
         return bitmap
     }
 }
-

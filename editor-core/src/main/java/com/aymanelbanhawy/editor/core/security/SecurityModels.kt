@@ -1,5 +1,6 @@
 package com.aymanelbanhawy.editor.core.security
 
+import com.aymanelbanhawy.editor.core.forms.TimestampValidationModel
 import com.aymanelbanhawy.editor.core.model.NormalizedRect
 import kotlinx.serialization.Serializable
 
@@ -24,6 +25,10 @@ enum class AuditEventType {
     InspectionGenerated,
     RedactionMarked,
     RedactionApplied,
+    SignatureApplied,
+    SignatureVerified,
+    SignatureInvalidated,
+    ProtectedExported,
     AuditExported,
     AiProviderChanged,
     AiModelChanged,
@@ -139,6 +144,10 @@ data class InspectionFindingModel(
 data class InspectionReportModel(
     val generatedAtEpochMillis: Long = 0L,
     val findings: List<InspectionFindingModel> = emptyList(),
+    val metadataSummary: Map<String, String> = emptyMap(),
+    val hiddenAnnotationCount: Int = 0,
+    val embeddedContentFlags: List<String> = emptyList(),
+    val redactionCoverageSummary: String = "",
 )
 
 @Serializable
@@ -168,6 +177,14 @@ data class RedactionWorkflowModel(
 )
 
 @Serializable
+data class DocumentTimestampPolicyModel(
+    val enabled: Boolean = false,
+    val authorityUrl: String = "",
+    val requireTimestampOnSign: Boolean = false,
+    val lastValidation: TimestampValidationModel = TimestampValidationModel(),
+)
+
+@Serializable
 data class SecurityDocumentModel(
     val appLockRequired: Boolean = false,
     val permissions: DocumentPermissionModel = DocumentPermissionModel(),
@@ -177,6 +194,7 @@ data class SecurityDocumentModel(
     val metadataScrub: MetadataScrubOptionsModel = MetadataScrubOptionsModel(),
     val inspectionReport: InspectionReportModel = InspectionReportModel(),
     val redactionWorkflow: RedactionWorkflowModel = RedactionWorkflowModel(),
+    val timestampPolicy: DocumentTimestampPolicyModel = DocumentTimestampPolicyModel(),
 )
 
 data class PolicyDecision(

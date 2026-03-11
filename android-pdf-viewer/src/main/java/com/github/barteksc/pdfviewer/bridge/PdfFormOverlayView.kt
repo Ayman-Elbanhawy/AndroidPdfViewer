@@ -109,6 +109,7 @@ internal class PdfFormOverlayView @JvmOverloads constructor(
                 SignatureVerificationStatus.Signed -> "Signed"
                 SignatureVerificationStatus.Verified -> "Verified"
                 SignatureVerificationStatus.Invalid -> "Invalid"
+                SignatureVerificationStatus.VerificationFailed -> "Verify"
             }
             FormFieldType.Checkbox -> "Check"
             FormFieldType.RadioGroup -> "Radio"
@@ -119,3 +120,4 @@ internal class PdfFormOverlayView @JvmOverloads constructor(
         }
     }
 }
+

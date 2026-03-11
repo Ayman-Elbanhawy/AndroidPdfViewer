@@ -7,6 +7,8 @@ import com.aymanelbanhawy.editor.core.data.AuditTrailEventDao
 import com.aymanelbanhawy.editor.core.data.AuditTrailEventEntity
 import com.aymanelbanhawy.editor.core.data.DocumentSecurityDao
 import com.aymanelbanhawy.editor.core.data.DocumentSecurityEntity
+import com.aymanelbanhawy.editor.core.forms.DigitalSignatureService
+import com.aymanelbanhawy.editor.core.forms.SignatureVerificationStatus
 import com.aymanelbanhawy.editor.core.model.DocumentModel
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import java.io.File
@@ -43,6 +45,7 @@ class DefaultSecurityRepository(
     private val documentSecurityDao: DocumentSecurityDao,
     private val auditTrailEventDao: AuditTrailEventDao,
     private val json: Json,
+    private val digitalSignatureService: DigitalSignatureService? = null,
 ) : SecurityRepository {
 
     private val mutableAppLockState = MutableStateFlow(AppLockStateModel())
@@ -140,28 +143,66 @@ class DefaultSecurityRepository(
     override suspend fun inspectDocument(document: DocumentModel): InspectionReportModel {
         val findings = mutableListOf<InspectionFindingModel>()
         val file = File(document.documentRef.workingCopyPath)
+        val metadataSummary = linkedMapOf<String, String>()
+        val embeddedContentFlags = mutableListOf<String>()
+        var hiddenAnnotationCount = 0
+        val appliedRedactions = document.security.redactionWorkflow.marks.count { it.status == RedactionStatus.Applied }
+        val totalRedactions = document.security.redactionWorkflow.marks.size
         if (!file.exists()) {
             findings += InspectionFindingModel("missing-file", "Working Copy Missing", "The working copy is missing from local storage.", InspectionSeverity.Critical)
         } else {
-            PDDocument.load(file).use { pdDocument ->
+            PDDocument.load(file, document.security.passwordProtection.userPassword.takeIf { document.security.passwordProtection.enabled && it.isNotBlank() }).use { pdDocument ->
                 val info = pdDocument.documentInformation
+                metadataSummary["title"] = info.title.orEmpty()
+                metadataSummary["author"] = info.author.orEmpty()
+                metadataSummary["subject"] = info.subject.orEmpty()
+                metadataSummary["keywords"] = info.keywords.orEmpty()
+                metadataSummary["creator"] = info.creator.orEmpty()
+                metadataSummary["producer"] = info.producer.orEmpty()
                 if (!pdDocument.isEncrypted) {
                     findings += InspectionFindingModel("encryption", "Document Not Password Protected", "The file can be opened without a password.", InspectionSeverity.Warning)
                 }
-                if (!info.author.isNullOrBlank() || !info.title.isNullOrBlank() || !info.subject.isNullOrBlank() || !info.keywords.isNullOrBlank()) {
-                    findings += InspectionFindingModel("metadata", "Metadata Present", "Title, author, subject, or keywords are still present in the document info dictionary.", InspectionSeverity.Warning)
+                if (metadataSummary.values.any { it.isNotBlank() }) {
+                    findings += InspectionFindingModel("metadata", "Metadata Present", "Title, author, subject, or keyword metadata are still present in the document.", InspectionSeverity.Warning)
                 }
-                if (document.security.redactionWorkflow.marks.any { it.status == RedactionStatus.Marked }) {
-                    findings += InspectionFindingModel("redaction-pending", "Pending Redactions", "There are marked redactions that have not been irreversibly applied.", InspectionSeverity.Critical)
+                hiddenAnnotationCount = pdDocument.pages.sumOf { page -> page.annotations.count { it.isHidden || it.isInvisible || it.isNoView } }
+                if (hiddenAnnotationCount > 0) {
+                    findings += InspectionFindingModel("hidden-annotations", "Hidden annotations detected", "$hiddenAnnotationCount annotation(s) are hidden or non-visible.", InspectionSeverity.Warning)
                 }
-                if (document.security.watermark.enabled) {
-                    findings += InspectionFindingModel("watermark", "Watermark Enabled", "A visible watermark will be included in exports.", InspectionSeverity.Info)
+                val embeddedFiles = pdDocument.documentCatalog.names?.embeddedFiles
+                if (embeddedFiles != null) {
+                    embeddedContentFlags += "embedded-files"
+                    findings += InspectionFindingModel("embedded-content", "Embedded content present", "The document includes embedded files or attachment name trees.", InspectionSeverity.Warning)
                 }
             }
+        }
+        if (document.security.redactionWorkflow.marks.any { it.status == RedactionStatus.Marked }) {
+            findings += InspectionFindingModel("redaction-pending", "Pending Redactions", "There are marked redactions that have not been irreversibly applied.", InspectionSeverity.Critical)
+        }
+        if (document.security.watermark.enabled) {
+            findings += InspectionFindingModel("watermark", "Watermark Enabled", "A visible watermark will be included in exports.", InspectionSeverity.Info)
+        }
+        digitalSignatureService?.verifyDocument(file, document.security.passwordProtection.userPassword.takeIf { document.security.passwordProtection.enabled && it.isNotBlank() })?.forEach { (fieldName, verification) ->
+            val severity = when (verification.verificationStatus) {
+                SignatureVerificationStatus.Verified -> InspectionSeverity.Info
+                SignatureVerificationStatus.Signed -> InspectionSeverity.Warning
+                SignatureVerificationStatus.Unsigned -> InspectionSeverity.Warning
+                SignatureVerificationStatus.Invalid, SignatureVerificationStatus.VerificationFailed -> InspectionSeverity.Critical
+            }
+            findings += InspectionFindingModel(
+                id = "signature-$fieldName",
+                title = "Signature ${verification.verificationStatus.name}",
+                message = "$fieldName: ${verification.verificationMessage.ifBlank { "No verification message recorded." }}",
+                severity = severity,
+            )
         }
         val report = InspectionReportModel(
             generatedAtEpochMillis = System.currentTimeMillis(),
             findings = findings,
+            metadataSummary = metadataSummary,
+            hiddenAnnotationCount = hiddenAnnotationCount,
+            embeddedContentFlags = embeddedContentFlags,
+            redactionCoverageSummary = "$appliedRedactions of $totalRedactions redaction region(s) were irreversibly applied.",
         )
         persistDocumentSecurity(document.documentRef.sourceKey, document.security.copy(inspectionReport = report))
         recordAudit(
@@ -267,3 +308,4 @@ private fun AuditTrailEventEntity.toModel(json: Json): AuditTrailEventModel = Au
     createdAtEpochMillis = createdAtEpochMillis,
     metadata = json.decodeFromString(MapSerializer(String.serializer(), String.serializer()), metadataJson),
 )
+

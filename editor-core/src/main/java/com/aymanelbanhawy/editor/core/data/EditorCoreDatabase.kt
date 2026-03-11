@@ -1,4 +1,4 @@
-﻿package com.aymanelbanhawy.editor.core.data
+package com.aymanelbanhawy.editor.core.data
 
 import android.content.Context
 import androidx.room.Room
@@ -12,7 +12,7 @@ fun createEditorCoreDatabase(context: Context): PdfWorkspaceDatabase {
         PdfWorkspaceDatabase::class.java,
         DATABASE_NAME,
     )
-        .addMigrations(MIGRATION_7_8, MIGRATION_8_9)
+        .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
         .build()
 }
 
@@ -104,5 +104,34 @@ val MIGRATION_8_9 = object : androidx.room.migration.Migration(8, 9) {
         database.execSQL("ALTER TABLE sync_queue ADD COLUMN tombstone INTEGER NOT NULL DEFAULT 0")
         database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_sync_queue_idempotencyKey ON sync_queue(idempotencyKey)")
         database.execSQL("CREATE INDEX IF NOT EXISTS index_sync_queue_state_nextAttemptAtEpochMillis ON sync_queue(state, nextAttemptAtEpochMillis)")
+    }
+}
+
+val MIGRATION_9_10 = object : androidx.room.migration.Migration(9, 10) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL("ALTER TABLE saved_signatures ADD COLUMN sourceType TEXT NOT NULL DEFAULT 'Handwritten'")
+        database.execSQL("ALTER TABLE saved_signatures ADD COLUMN signingIdentityId TEXT NOT NULL DEFAULT ''")
+        database.execSQL("ALTER TABLE saved_signatures ADD COLUMN signerDisplayName TEXT NOT NULL DEFAULT ''")
+        database.execSQL("ALTER TABLE saved_signatures ADD COLUMN certificateSubject TEXT NOT NULL DEFAULT ''")
+        database.execSQL("ALTER TABLE saved_signatures ADD COLUMN certificateSha256 TEXT NOT NULL DEFAULT ''")
+        database.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS signing_identities (
+                id TEXT NOT NULL,
+                displayName TEXT NOT NULL,
+                subjectCommonName TEXT NOT NULL,
+                issuerCommonName TEXT NOT NULL,
+                serialNumberHex TEXT NOT NULL,
+                certificateSha256 TEXT NOT NULL,
+                validFromEpochMillis INTEGER NOT NULL,
+                validToEpochMillis INTEGER NOT NULL,
+                encryptedPkcs12Path TEXT NOT NULL,
+                encryptedPasswordPath TEXT NOT NULL,
+                certificateAlias TEXT NOT NULL,
+                createdAtEpochMillis INTEGER NOT NULL,
+                PRIMARY KEY(id)
+            )
+            """.trimIndent(),
+        )
     }
 }

@@ -145,7 +145,17 @@ class DefaultEditorSession(
     }
 
     private fun publishCommandState(document: DocumentModel, selection: SelectionModel, message: String) {
+        val signaturesPresent = document.formDocument.fields.any { field ->
+            val signature = field.value as? com.aymanelbanhawy.editor.core.forms.FormFieldValue.SignatureValue
+            signature != null && signature.status != com.aymanelbanhawy.editor.core.forms.SignatureVerificationStatus.Unsigned
+        }
+        val updatedFormDocument = if (signaturesPresent) {
+            document.formDocument.invalidateSignatures("Document modified after signing.")
+        } else {
+            document.formDocument
+        }
         val dirtyDocument = document.copy(
+            formDocument = updatedFormDocument,
             dirtyState = DirtyState(
                 isDirty = true,
                 lastModifiedAtEpochMillis = System.currentTimeMillis(),
@@ -186,3 +196,4 @@ class DefaultEditorSession(
         )
     }
 }
+

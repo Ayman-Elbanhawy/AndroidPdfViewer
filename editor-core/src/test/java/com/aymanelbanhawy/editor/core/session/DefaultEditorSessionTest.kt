@@ -2,6 +2,12 @@ package com.aymanelbanhawy.editor.core.session
 
 import com.aymanelbanhawy.editor.core.command.AddAnnotationCommand
 import com.aymanelbanhawy.editor.core.command.UpdateAnnotationCommand
+import com.aymanelbanhawy.editor.core.forms.DigitalSignatureMetadata
+import com.aymanelbanhawy.editor.core.forms.FormDocumentModel
+import com.aymanelbanhawy.editor.core.forms.FormFieldModel
+import com.aymanelbanhawy.editor.core.forms.FormFieldType
+import com.aymanelbanhawy.editor.core.forms.FormFieldValue
+import com.aymanelbanhawy.editor.core.forms.SignatureVerificationStatus
 import com.aymanelbanhawy.editor.core.model.AnnotationCommentThread
 import com.aymanelbanhawy.editor.core.model.AnnotationExportMode
 import com.aymanelbanhawy.editor.core.model.AnnotationModel
@@ -17,13 +23,13 @@ import com.aymanelbanhawy.editor.core.model.PdfDocumentRef
 import com.aymanelbanhawy.editor.core.repository.DocumentRepository
 import com.aymanelbanhawy.editor.core.repository.DraftRestoreResult
 import com.google.common.truth.Truth.assertThat
+import java.io.File
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
-import java.io.File
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DefaultEditorSessionTest {
@@ -68,8 +74,24 @@ class DefaultEditorSessionTest {
         assertThat(shareEvent.document.documentRef.displayName).isEqualTo("sample.pdf")
     }
 
+    @Test
+    fun execute_invalidatesExistingSignatureStateAfterDocumentEdit() = runTest {
+        val repository = FakeDocumentRepository(withSignedField = true)
+        val session = DefaultEditorSession(repository, NoOpAutosaveScheduler(), StandardTestDispatcher(testScheduler))
+        session.openDocument(OpenDocumentRequest.FromAsset(assetName = "sample.pdf", displayName = "sample.pdf"))
+
+        session.execute(AddAnnotationCommand(0, annotation(id = "ann-signed")))
+
+        val signatureField = session.state.value.document?.formDocument?.fields?.single()
+        val signatureValue = signatureField?.value as FormFieldValue.SignatureValue
+        assertThat(signatureValue.status).isEqualTo(SignatureVerificationStatus.Invalid)
+        assertThat(signatureField.signatureStatus).isEqualTo(SignatureVerificationStatus.Invalid)
+        assertThat(signatureValue.digitalSignature?.verificationMessage).isEqualTo("Document modified after signing.")
+    }
+
     private class FakeDocumentRepository(
         private val restoreResult: DraftRestoreResult? = null,
+        private val withSignedField: Boolean = false,
     ) : DocumentRepository {
         val persistedDrafts = mutableListOf<DraftPayload>()
         val savedModes = mutableListOf<AnnotationExportMode>()
@@ -98,6 +120,31 @@ class DefaultEditorSessionTest {
                     workingCopyPath = "C:/sample.pdf",
                 ),
                 pages = listOf(PageModel(index = 0, label = "1")),
+                formDocument = if (withSignedField) {
+                    FormDocumentModel(
+                        fields = listOf(
+                            FormFieldModel(
+                                name = "sig-1",
+                                label = "Signature",
+                                pageIndex = 0,
+                                bounds = NormalizedRect(0.1f, 0.1f, 0.4f, 0.2f),
+                                type = FormFieldType.Signature,
+                                value = FormFieldValue.SignatureValue(
+                                    signerName = "Signer",
+                                    status = SignatureVerificationStatus.Verified,
+                                    digitalSignature = DigitalSignatureMetadata(
+                                        fieldName = "sig-1",
+                                        verificationStatus = SignatureVerificationStatus.Verified,
+                                        verificationMessage = "The digital signature is valid.",
+                                    ),
+                                ),
+                                signatureStatus = SignatureVerificationStatus.Verified,
+                            ),
+                        ),
+                    )
+                } else {
+                    FormDocumentModel()
+                },
             )
         }
     }

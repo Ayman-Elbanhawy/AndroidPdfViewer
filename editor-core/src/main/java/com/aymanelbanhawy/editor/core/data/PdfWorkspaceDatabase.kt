@@ -1,4 +1,4 @@
-﻿package com.aymanelbanhawy.editor.core.data
+package com.aymanelbanhawy.editor.core.data
 
 import androidx.room.Database
 import androidx.room.RoomDatabase
@@ -10,6 +10,7 @@ import androidx.room.RoomDatabase
         EditHistoryMetadataEntity::class,
         FormProfileEntity::class,
         SavedSignatureEntity::class,
+        SigningIdentityEntity::class,
         RecentSearchEntity::class,
         SearchIndexEntity::class,
         OcrJobEntity::class,
@@ -26,7 +27,7 @@ import androidx.room.RoomDatabase
         EnterpriseSettingsEntity::class,
         TelemetryEventEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = false,
 )
 abstract class PdfWorkspaceDatabase : RoomDatabase() {
@@ -35,6 +36,7 @@ abstract class PdfWorkspaceDatabase : RoomDatabase() {
     abstract fun editHistoryMetadataDao(): EditHistoryMetadataDao
     abstract fun formProfileDao(): FormProfileDao
     abstract fun savedSignatureDao(): SavedSignatureDao
+    abstract fun signingIdentityDao(): SigningIdentityDao
     abstract fun recentSearchDao(): RecentSearchDao
     abstract fun searchIndexDao(): SearchIndexDao
     abstract fun ocrJobDao(): OcrJobDao

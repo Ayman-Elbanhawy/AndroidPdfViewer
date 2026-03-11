@@ -10,4 +10,9 @@ data class SavedSignatureEntity(
     val kind: String,
     val imagePath: String,
     val createdAtEpochMillis: Long,
+    val sourceType: String = "Handwritten",
+    val signingIdentityId: String = "",
+    val signerDisplayName: String = "",
+    val certificateSubject: String = "",
+    val certificateSha256: String = "",
 )

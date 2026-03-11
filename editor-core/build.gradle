@@ -47,6 +47,8 @@ dependencies {
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0'
     implementation 'com.google.mlkit:text-recognition:16.0.1'
     implementation 'com.tom-roush:pdfbox-android:2.0.27.0'
+    implementation 'org.bouncycastle:bcprov-jdk15to18:1.72'
+    implementation('org.bouncycastle:bcpkix-jdk15to18:1.72') { exclude group: 'org.bouncycastle', module: 'bcprov-jdk18on' }
     ksp 'androidx.room:room-compiler:2.6.1'
 
     testImplementation 'junit:junit:4.13.2'
@@ -56,6 +58,4 @@ dependencies {
     testImplementation 'org.robolectric:robolectric:4.14.1'
     testImplementation 'androidx.work:work-testing:2.10.0'
 }
-
-
 

@@ -13,6 +13,8 @@ import com.aymanelbanhawy.editor.core.enterprise.DefaultEnterpriseAdminRepositor
 import com.aymanelbanhawy.editor.core.enterprise.EnterpriseAdminRepository
 import com.aymanelbanhawy.editor.core.forms.DefaultFormSupportRepository
 import com.aymanelbanhawy.editor.core.forms.FormSupportRepository
+import com.aymanelbanhawy.editor.core.forms.PdfBoxDigitalSignatureService
+import com.aymanelbanhawy.editor.core.forms.DigitalSignatureService
 import com.aymanelbanhawy.editor.core.ocr.OcrJobPipeline
 import com.aymanelbanhawy.editor.core.ocr.OcrSessionStore
 import com.aymanelbanhawy.editor.core.organize.DefaultPageThumbnailRepository
@@ -28,14 +30,14 @@ import com.aymanelbanhawy.editor.core.search.RoomSearchIndexStore
 import com.aymanelbanhawy.editor.core.security.AndroidSecureFileCipher
 import com.aymanelbanhawy.editor.core.security.DefaultSecurityRepository
 import com.aymanelbanhawy.editor.core.security.SecurityRepository
-import com.aymanelbanhawy.editor.core.write.PdfBoxWriteEngine
-import com.aymanelbanhawy.editor.core.write.RoomMutationInvalidationHooks
 import com.aymanelbanhawy.editor.core.session.DefaultEditorSession
 import com.aymanelbanhawy.editor.core.session.EditorSession
 import com.aymanelbanhawy.editor.core.work.CleanupExportsWorker
 import com.aymanelbanhawy.editor.core.work.SearchIndexScheduler
 import com.aymanelbanhawy.editor.core.work.WorkManagerAutosaveScheduler
 import com.aymanelbanhawy.editor.core.work.WorkManagerCollaborationSyncScheduler
+import com.aymanelbanhawy.editor.core.write.PdfBoxWriteEngine
+import com.aymanelbanhawy.editor.core.write.RoomMutationInvalidationHooks
 import kotlinx.serialization.json.Json
 
 class EditorCoreContainer(
@@ -50,6 +52,12 @@ class EditorCoreContainer(
         classDiscriminator = "_type"
     }
     private val ocrSessionStore = OcrSessionStore(json)
+    private val secureFileCipher = AndroidSecureFileCipher(appContext)
+    val digitalSignatureService: DigitalSignatureService = PdfBoxDigitalSignatureService(
+        context = appContext,
+        signingIdentityDao = database.signingIdentityDao(),
+        secureFileCipher = secureFileCipher,
+    )
     val enterpriseAdminRepository: EnterpriseAdminRepository = DefaultEnterpriseAdminRepository(
         context = appContext,
         settingsDao = database.enterpriseSettingsDao(),
@@ -62,6 +70,7 @@ class EditorCoreContainer(
         documentSecurityDao = database.documentSecurityDao(),
         auditTrailEventDao = database.auditTrailEventDao(),
         json = json,
+        digitalSignatureService = digitalSignatureService,
     )
     private val searchIndexStore = RoomSearchIndexStore(
         searchIndexDao = database.searchIndexDao(),
@@ -78,6 +87,11 @@ class EditorCoreContainer(
         json = json,
         ocrSessionStore = ocrSessionStore,
     )
+    val formSupportRepository: FormSupportRepository = DefaultFormSupportRepository(
+        context = appContext,
+        profileDao = database.formProfileDao(),
+        savedSignatureDao = database.savedSignatureDao(),
+    )
     val documentRepository: DocumentRepository = DefaultDocumentRepository(
         context = appContext,
         recentDocumentDao = database.recentDocumentDao(),
@@ -88,16 +102,13 @@ class EditorCoreContainer(
             context = appContext,
             invalidationHooks = RoomMutationInvalidationHooks(appContext, database.searchIndexDao()),
         ),
-        secureFileCipher = AndroidSecureFileCipher(appContext),
+        secureFileCipher = secureFileCipher,
         ocrSessionStore = ocrSessionStore,
         json = json,
+        digitalSignatureService = digitalSignatureService,
+        securityRepository = securityRepository,
     )
     val pageThumbnailRepository: PageThumbnailRepository = DefaultPageThumbnailRepository(appContext)
-    val formSupportRepository: FormSupportRepository = DefaultFormSupportRepository(
-        context = appContext,
-        profileDao = database.formProfileDao(),
-        savedSignatureDao = database.savedSignatureDao(),
-    )
     val searchIndexScheduler: SearchIndexScheduler = SearchIndexScheduler(workManager)
     val scanImportService: ScanImportService = DefaultScanImportService(appContext, ocrJobPipeline)
     private val collaborationSyncScheduler = WorkManagerCollaborationSyncScheduler(workManager)
@@ -130,6 +141,3 @@ class EditorCoreContainer(
 
     fun newSession(): EditorSession = DefaultEditorSession(documentRepository, autosaveScheduler)
 }
-
-
-

@@ -2,6 +2,12 @@ package com.aymanelbanhawy.editor.core.repository
 
 import android.content.Context
 import android.graphics.BitmapFactory
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.pdf.PdfRenderer
+import android.os.ParcelFileDescriptor
 import android.net.Uri
 import androidx.core.net.toUri
 import com.aymanelbanhawy.editor.core.data.DocumentSecurityDao
@@ -12,6 +18,7 @@ import com.aymanelbanhawy.editor.core.data.EditHistoryMetadataDao
 import com.aymanelbanhawy.editor.core.data.EditHistoryMetadataEntity
 import com.aymanelbanhawy.editor.core.data.RecentDocumentDao
 import com.aymanelbanhawy.editor.core.data.RecentDocumentEntity
+import com.aymanelbanhawy.editor.core.forms.DigitalSignatureService
 import com.aymanelbanhawy.editor.core.forms.FormDocumentModel
 import com.aymanelbanhawy.editor.core.forms.FormFieldModel
 import com.aymanelbanhawy.editor.core.forms.FormFieldOption
@@ -39,6 +46,7 @@ import com.aymanelbanhawy.editor.core.security.PasswordProtectionModel
 import com.aymanelbanhawy.editor.core.security.RedactionMarkModel
 import com.aymanelbanhawy.editor.core.security.RedactionStatus
 import com.aymanelbanhawy.editor.core.security.SecurityDocumentModel
+import com.aymanelbanhawy.editor.core.security.SecurityRepository
 import com.aymanelbanhawy.editor.core.security.SecureFileCipher
 import com.aymanelbanhawy.editor.core.security.WatermarkModel
 import com.aymanelbanhawy.editor.core.organize.SplitRequest
@@ -104,6 +112,8 @@ class DefaultDocumentRepository(
         classDiscriminator = "_type"
     },
     private val ocrSessionStore: OcrSessionStore = OcrSessionStore(json),
+    private val digitalSignatureService: DigitalSignatureService? = null,
+    private val securityRepository: SecurityRepository? = null,
 ) : DocumentRepository {
 
     init {
@@ -605,6 +615,10 @@ private data class AnnotationSidecarPayload(
     val annotations: List<AnnotationModel>,
     val updatedAtEpochMillis: Long,
 )
+
+
+
+
 
 
 

@@ -21,6 +21,7 @@ enum class SignatureVerificationStatus {
     Signed,
     Verified,
     Invalid,
+    VerificationFailed,
 }
 
 @Serializable
@@ -30,9 +31,72 @@ enum class SignatureKind {
 }
 
 @Serializable
+enum class SignatureSourceType {
+    Handwritten,
+    CertificateBacked,
+}
+
+@Serializable
+enum class SignatureDigestAlgorithm {
+    Sha256,
+}
+
+@Serializable
+enum class TimestampHookStatus {
+    Disabled,
+    PendingHook,
+    Applied,
+    Failed,
+}
+
+@Serializable
 data class FormFieldOption(
     val label: String,
     val value: String,
+)
+
+@Serializable
+data class TimestampValidationModel(
+    val enabled: Boolean = false,
+    val authorityUrl: String = "",
+    val status: TimestampHookStatus = TimestampHookStatus.Disabled,
+    val appliedAtEpochMillis: Long? = null,
+    val message: String = "",
+)
+
+@Serializable
+data class DigitalSignatureMetadata(
+    val fieldName: String = "",
+    val sourceType: SignatureSourceType = SignatureSourceType.Handwritten,
+    val signingIdentityId: String = "",
+    val signerDisplayName: String = "",
+    val certificateSubject: String = "",
+    val certificateIssuer: String = "",
+    val certificateSerialNumberHex: String = "",
+    val certificateSha256: String = "",
+    val digestAlgorithm: SignatureDigestAlgorithm = SignatureDigestAlgorithm.Sha256,
+    val documentDigestSha256: String = "",
+    val signedAtEpochMillis: Long = 0L,
+    val invalidatedAtEpochMillis: Long? = null,
+    val lastVerifiedAtEpochMillis: Long? = null,
+    val verificationStatus: SignatureVerificationStatus = SignatureVerificationStatus.Unsigned,
+    val verificationMessage: String = "",
+    val signatureSubFilter: String = "",
+    val byteRange: List<Int> = emptyList(),
+    val timestamp: TimestampValidationModel = TimestampValidationModel(),
+)
+
+@Serializable
+data class SigningIdentityModel(
+    val id: String,
+    val displayName: String,
+    val subjectCommonName: String,
+    val issuerCommonName: String,
+    val serialNumberHex: String,
+    val certificateSha256: String,
+    val validFromEpochMillis: Long,
+    val validToEpochMillis: Long,
+    val createdAtEpochMillis: Long,
 )
 
 @Serializable
@@ -54,6 +118,13 @@ sealed interface FormFieldValue {
         val status: SignatureVerificationStatus = SignatureVerificationStatus.Unsigned,
         val imagePath: String? = null,
         val kind: SignatureKind = SignatureKind.Signature,
+        val sourceType: SignatureSourceType = SignatureSourceType.Handwritten,
+        val signingIdentityId: String = "",
+        val certificateDisplayName: String = "",
+        val reason: String = "Approved",
+        val location: String = "",
+        val contactInfo: String = "",
+        val digitalSignature: DigitalSignatureMetadata? = null,
     ) : FormFieldValue
 }
 
@@ -82,6 +153,32 @@ data class FormDocumentModel(
     fun updateField(updated: FormFieldModel): FormDocumentModel = copy(
         fields = fields.map { field -> if (field.name == updated.name) updated else field },
     )
+
+    fun invalidateSignatures(message: String): FormDocumentModel {
+        val now = System.currentTimeMillis()
+        return copy(
+            fields = fields.map { field ->
+                val signatureValue = field.value as? FormFieldValue.SignatureValue ?: return@map field
+                val activeStatus = signatureValue.digitalSignature?.verificationStatus ?: signatureValue.status
+                if (activeStatus == SignatureVerificationStatus.Unsigned) {
+                    field
+                } else {
+                    field.copy(
+                        value = signatureValue.copy(
+                            status = SignatureVerificationStatus.Invalid,
+                            digitalSignature = signatureValue.digitalSignature?.copy(
+                                verificationStatus = SignatureVerificationStatus.Invalid,
+                                verificationMessage = message,
+                                invalidatedAtEpochMillis = now,
+                                lastVerifiedAtEpochMillis = now,
+                            ),
+                        ),
+                        signatureStatus = SignatureVerificationStatus.Invalid,
+                    )
+                }
+            },
+        )
+    }
 
     fun field(name: String): FormFieldModel? = fields.firstOrNull { it.name == name }
 }
@@ -127,6 +224,11 @@ data class SavedSignatureModel(
     val kind: SignatureKind,
     val imagePath: String,
     val createdAtEpochMillis: Long,
+    val sourceType: SignatureSourceType = SignatureSourceType.Handwritten,
+    val signingIdentityId: String = "",
+    val signerDisplayName: String = "",
+    val certificateSubject: String = "",
+    val certificateSha256: String = "",
 )
 
 @Serializable
