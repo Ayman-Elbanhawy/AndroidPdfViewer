@@ -8,7 +8,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Preview
+import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -28,6 +34,7 @@ import com.aymanelbanhawy.editor.core.security.DocumentPermissionModel
 import com.aymanelbanhawy.editor.core.security.MetadataScrubOptionsModel
 import com.aymanelbanhawy.editor.core.security.SecurityDocumentModel
 import com.aymanelbanhawy.editor.core.security.TenantPolicyHooksModel
+import com.aymanelbanhawy.enterprisepdf.app.ui.IconTooltipButton
 
 @Composable
 fun SecuritySidebar(
@@ -73,8 +80,8 @@ fun SecuritySidebar(
                         OutlinedTextField(value = pin, onValueChange = { pin = it }, label = { Text("PIN") }, modifier = Modifier.fillMaxWidth())
                         OutlinedTextField(value = timeoutSeconds, onValueChange = { timeoutSeconds = it }, label = { Text("Lock timeout seconds") }, modifier = Modifier.fillMaxWidth())
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { onConfigureAppLock(appLockSettings.enabled, pin, appLockSettings.biometricsEnabled, timeoutSeconds.toIntOrNull() ?: appLockSettings.lockTimeoutSeconds) }) { Text("Save lock") }
-                            Button(onClick = onLockNow) { Text("Lock now") }
+                            IconTooltipButton(icon = Icons.Outlined.Security, tooltip = "Save Lock Settings", onClick = { onConfigureAppLock(appLockSettings.enabled, pin, appLockSettings.biometricsEnabled, timeoutSeconds.toIntOrNull() ?: appLockSettings.lockTimeoutSeconds) })
+                            IconTooltipButton(icon = Icons.Outlined.Lock, tooltip = "Lock Now", onClick = onLockNow)
                         }
                     }
                 }
@@ -104,12 +111,12 @@ fun SecuritySidebar(
                         }
                         OutlinedTextField(value = userPassword, onValueChange = { userPassword = it }, label = { Text("Open password") }, modifier = Modifier.fillMaxWidth())
                         OutlinedTextField(value = ownerPassword, onValueChange = { ownerPassword = it }, label = { Text("Owner password") }, modifier = Modifier.fillMaxWidth())
-                        Button(onClick = { onUpdatePasswordProtection(security.passwordProtection.enabled, userPassword, ownerPassword) }) { Text("Apply passwords") }
+                        IconTooltipButton(icon = Icons.Outlined.Security, tooltip = "Apply Passwords", onClick = { onUpdatePasswordProtection(security.passwordProtection.enabled, userPassword, ownerPassword) })
                         SettingRow("Watermark", security.watermark.enabled) {
                             onUpdateWatermark(it, watermarkText)
                         }
                         OutlinedTextField(value = watermarkText, onValueChange = { watermarkText = it }, label = { Text("Watermark text") }, modifier = Modifier.fillMaxWidth())
-                        Button(onClick = { onUpdateWatermark(security.watermark.enabled, watermarkText) }) { Text("Update watermark") }
+                        IconTooltipButton(icon = Icons.Outlined.ContentCopy, tooltip = "Update Watermark", onClick = { onUpdateWatermark(security.watermark.enabled, watermarkText) })
                     }
                 }
             }
@@ -126,7 +133,7 @@ fun SecuritySidebar(
                         PermissionToggle("Scrub title", security.metadataScrub.scrubTitle) {
                             onUpdateMetadataScrub(security.metadataScrub.copy(scrubTitle = it))
                         }
-                        Button(onClick = onInspect) { Text("Run inspection") }
+                        IconTooltipButton(icon = Icons.Outlined.Preview, tooltip = "Run Inspection", onClick = onInspect)
                         security.inspectionReport.findings.forEach { finding ->
                             Text("${finding.severity}: ${finding.title} - ${finding.message}", style = MaterialTheme.typography.bodySmall)
                         }
@@ -137,13 +144,15 @@ fun SecuritySidebar(
                 Card {
                     Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("Redaction", style = MaterialTheme.typography.titleMedium)
-                        Button(onClick = onMarkRedaction) { Text("Mark selected text") }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            IconTooltipButton(icon = Icons.Outlined.Delete, tooltip = "Mark Selected Text", onClick = onMarkRedaction)
+                            IconTooltipButton(icon = Icons.Outlined.Preview, tooltip = "Apply Redactions", onClick = onApplyRedactions)
+                        }
                         SettingRow("Preview", security.redactionWorkflow.previewEnabled, onPreviewRedactions)
-                        Button(onClick = onApplyRedactions) { Text("Apply irreversible redactions") }
                         security.redactionWorkflow.marks.forEach { mark ->
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Text("Page ${mark.pageIndex + 1}: ${mark.label} (${mark.status.name})", style = MaterialTheme.typography.bodySmall)
-                                Button(onClick = { onRemoveRedaction(mark.id) }) { Text("Remove") }
+                                IconTooltipButton(icon = Icons.Outlined.Delete, tooltip = "Remove Redaction", onClick = { onRemoveRedaction(mark.id) })
                             }
                         }
                     }
@@ -153,7 +162,7 @@ fun SecuritySidebar(
                 Card {
                     Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("Audit Trail", style = MaterialTheme.typography.titleMedium)
-                        Button(onClick = onExportAudit) { Text("Export audit log") }
+                        IconTooltipButton(icon = Icons.Outlined.Download, tooltip = "Export Audit Log", onClick = onExportAudit)
                     }
                 }
             }

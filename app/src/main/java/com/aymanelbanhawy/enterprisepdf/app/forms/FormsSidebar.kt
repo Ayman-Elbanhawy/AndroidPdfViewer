@@ -13,8 +13,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.Draw
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -38,6 +41,7 @@ import com.aymanelbanhawy.editor.core.forms.FormProfileModel
 import com.aymanelbanhawy.editor.core.forms.SavedSignatureModel
 import com.aymanelbanhawy.editor.core.forms.SignatureKind
 import com.aymanelbanhawy.editor.core.forms.SignatureVerificationStatus
+import com.aymanelbanhawy.enterprisepdf.app.ui.IconTooltipButton
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -87,12 +91,14 @@ fun FormsSidebar(
                 singleLine = true,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Button(onClick = { onSaveProfile(profileName) }) { Text("Save Profile") }
-                AssistChip(onClick = onExportFormData, label = { Text("Export JSON") })
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                IconTooltipButton(icon = Icons.Outlined.ContentCopy, tooltip = "Save Profile", onClick = { onSaveProfile(profileName) })
+                IconTooltipButton(icon = Icons.Outlined.Download, tooltip = "Export Form JSON", onClick = onExportFormData)
                 profiles.take(4).forEach { profile ->
-                    FilterChip(selected = false, onClick = { onApplyProfile(profile.id) }, label = { Text(profile.name) })
+                    IconTooltipButton(
+                        icon = Icons.Outlined.Person,
+                        tooltip = "Apply profile: ${profile.name}",
+                        onClick = { onApplyProfile(profile.id) },
+                    )
                 }
             }
             LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -175,9 +181,13 @@ private fun FieldCard(
                 FormFieldType.Signature -> {
                     val signatureValue = field.value as? FormFieldValue.SignatureValue
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Button(onClick = { onOpenSignatureCapture(field.name) }) { Text("Capture") }
-                        signatures.take(2).forEach { signature ->
-                            AssistChip(onClick = { onApplySignature(field.name, signature.id) }, label = { Text(signature.name) })
+                        IconTooltipButton(icon = Icons.Outlined.Draw, tooltip = "Capture Signature", onClick = { onOpenSignatureCapture(field.name) })
+                        signatures.take(4).forEach { signature ->
+                            IconTooltipButton(
+                                icon = Icons.Outlined.Draw,
+                                tooltip = "Apply saved ${signature.kind.name.lowercase()}: ${signature.name}",
+                                onClick = { onApplySignature(field.name, signature.id) },
+                            )
                         }
                     }
                     if (signatureValue?.imagePath != null) {

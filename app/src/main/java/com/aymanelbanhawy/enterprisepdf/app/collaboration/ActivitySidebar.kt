@@ -8,7 +8,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AssistChip
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CloudSync
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -16,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.aymanelbanhawy.editor.core.collaboration.ActivityEventModel
+import com.aymanelbanhawy.enterprisepdf.app.ui.IconTooltipButton
 
 @Composable
 fun ActivitySidebar(
@@ -28,7 +30,7 @@ fun ActivitySidebar(
         Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Activity", style = MaterialTheme.typography.titleLarge)
-                AssistChip(onClick = onSyncNow, label = { Text("Sync ${pendingSyncCount}") })
+                IconTooltipButton(icon = Icons.Outlined.CloudSync, tooltip = "Sync $pendingSyncCount", onClick = onSyncNow)
             }
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(events, key = { it.id }) { event ->

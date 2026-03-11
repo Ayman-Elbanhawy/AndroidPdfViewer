@@ -26,10 +26,13 @@ import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.BorderColor
 import androidx.compose.material.icons.outlined.FactCheck
 import androidx.compose.material.icons.outlined.FileOpen
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.IosShare
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Rotate90DegreesCw
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AssistChip
@@ -40,17 +43,13 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TooltipBox
-import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -90,6 +89,7 @@ import com.aymanelbanhawy.enterprisepdf.app.scan.ScanImportDialog
 import com.aymanelbanhawy.enterprisepdf.app.search.SearchSidebar
 import com.aymanelbanhawy.enterprisepdf.app.security.AppLockDialog
 import com.aymanelbanhawy.enterprisepdf.app.security.SecuritySidebar
+import com.aymanelbanhawy.enterprisepdf.app.ui.IconTooltipButton
 import com.github.barteksc.pdfviewer.bridge.PdfSessionViewport
 import com.github.barteksc.pdfviewer.bridge.PdfViewportCallbacks
 import kotlinx.coroutines.flow.Flow
@@ -255,11 +255,11 @@ fun EditorScreen(
                     }
                 },
                 actions = {
-                    IconButton(enabled = session.undoRedoState.canUndo, onClick = onUndo) { Icon(Icons.AutoMirrored.Outlined.Undo, contentDescription = "Undo") }
-                    IconButton(enabled = session.undoRedoState.canRedo, onClick = onRedo) { Icon(Icons.AutoMirrored.Outlined.Redo, contentDescription = "Redo") }
-                    IconButton(onClick = onSaveEditable) { Icon(Icons.Outlined.FileOpen, contentDescription = "Save editable") }
-                    IconButton(onClick = { onActionSelected(EditorAction.Share) }) { Icon(Icons.Outlined.IosShare, contentDescription = "Share") }
-                    IconButton(onClick = { overflowExpanded = true }) { Icon(Icons.Outlined.MoreVert, contentDescription = "More") }
+                    IconTooltipButton(icon = Icons.AutoMirrored.Outlined.Undo, tooltip = "Undo", enabled = session.undoRedoState.canUndo, onClick = onUndo)
+                    IconTooltipButton(icon = Icons.AutoMirrored.Outlined.Redo, tooltip = "Redo", enabled = session.undoRedoState.canRedo, onClick = onRedo)
+                    IconTooltipButton(icon = Icons.Outlined.FileOpen, tooltip = "Save Editable", onClick = onSaveEditable)
+                    IconTooltipButton(icon = Icons.Outlined.IosShare, tooltip = "Share", onClick = { onActionSelected(EditorAction.Share) })
+                    IconTooltipButton(icon = Icons.Outlined.MoreVert, tooltip = "More", onClick = { overflowExpanded = true })
                     DropdownMenu(expanded = overflowExpanded, onDismissRequest = { overflowExpanded = false }) {
                         DropdownMenuItem(text = { Text("Save Flattened") }, onClick = { overflowExpanded = false; onSaveFlattened() })
                         DropdownMenuItem(text = { Text("Save Editable Copy") }, onClick = { overflowExpanded = false; onSaveAsEditable() })
@@ -281,7 +281,9 @@ fun EditorScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     EditorAction.entries.forEach { action ->
-                        FilterChip(
+                        IconTooltipButton(
+                            icon = action.icon(),
+                            tooltip = action.tooltipLabel(),
                             selected = when (action) {
                                 EditorAction.Annotate -> state.activePanel == WorkspacePanel.Annotate
                                 EditorAction.Forms -> state.activePanel == WorkspacePanel.Forms
@@ -295,7 +297,6 @@ fun EditorScreen(
                                 else -> false
                             },
                             onClick = { onActionSelected(action) },
-                            label = { Text(action.name) },
                         )
                     }
                 }
@@ -306,7 +307,12 @@ fun EditorScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         AnnotationTool.entries.forEach { tool ->
-                            FilterChip(selected = state.activeTool == tool, onClick = { onToolSelected(tool) }, label = { Text(tool.label()) })
+                            IconTooltipButton(
+                                icon = tool.icon(),
+                                tooltip = tool.label(),
+                                selected = state.activeTool == tool,
+                                onClick = { onToolSelected(tool) },
+                            )
                         }
                     }
                     FlowRow(
@@ -317,12 +323,12 @@ fun EditorScreen(
                         listOf("#F9AB00", "#0B57D0", "#B3261E", "#137333", "#5E35B1").forEach { colorHex ->
                             ColorChip(colorHex = colorHex, onClick = { onRecolorSelected(colorHex) })
                         }
-                        AssistChip(onClick = onAddTextBox, label = { Text("Add Text") })
-                        AssistChip(onClick = onAddImage, label = { Text("Add Image") })
-                        AssistChip(onClick = onDuplicateSelected, label = { Text("Dup Ann") })
-                        AssistChip(onClick = onDeleteSelected, label = { Text("Del Ann") })
-                        AssistChip(onClick = onRotatePage, label = { Text("Rotate") })
-                        AssistChip(onClick = onReorderPages, label = { Text("Reorder") })
+                        IconTooltipButton(icon = Icons.AutoMirrored.Outlined.Article, tooltip = "Add Text Box", onClick = onAddTextBox)
+                        IconTooltipButton(icon = Icons.Outlined.IosShare, tooltip = "Add Image", onClick = onAddImage)
+                        IconTooltipButton(icon = Icons.Outlined.ContentCopy, tooltip = "Duplicate Annotation", onClick = onDuplicateSelected)
+                        IconTooltipButton(icon = Icons.Outlined.Delete, tooltip = "Delete Annotation", onClick = onDeleteSelected)
+                        IconTooltipButton(icon = Icons.Outlined.Rotate90DegreesCw, tooltip = "Rotate Page", onClick = onRotatePage)
+                        IconTooltipButton(icon = Icons.Outlined.GridView, tooltip = "Organize Pages", onClick = onReorderPages)
                     }
                 }
                 Box(modifier = Modifier.fillMaxSize()) {
@@ -550,6 +556,20 @@ private fun ColorChip(colorHex: String, onClick: () -> Unit) {
     }
 }
 
+private fun AnnotationTool.icon() = when (this) {
+    AnnotationTool.Select -> Icons.Outlined.BorderColor
+    AnnotationTool.Highlight -> Icons.Outlined.BorderColor
+    AnnotationTool.Underline -> Icons.Outlined.BorderColor
+    AnnotationTool.Strikeout -> Icons.Outlined.BorderColor
+    AnnotationTool.FreehandInk -> Icons.Outlined.BorderColor
+    AnnotationTool.Rectangle -> Icons.Outlined.GridView
+    AnnotationTool.Ellipse -> Icons.Outlined.GridView
+    AnnotationTool.Arrow -> Icons.Outlined.IosShare
+    AnnotationTool.Line -> Icons.Outlined.IosShare
+    AnnotationTool.StickyNote -> Icons.AutoMirrored.Outlined.Comment
+    AnnotationTool.TextBox -> Icons.AutoMirrored.Outlined.Article
+}
+
 private fun AnnotationTool.label(): String = when (this) {
     AnnotationTool.Select -> "Select"
     AnnotationTool.Highlight -> "Highlight"
@@ -570,3 +590,34 @@ private fun AnnotationTool.label(): String = when (this) {
 
 
 
+
+
+
+
+private fun EditorAction.icon() = when (this) {
+    EditorAction.Annotate -> Icons.Outlined.BorderColor
+    EditorAction.Organize -> Icons.Outlined.GridView
+    EditorAction.Forms -> Icons.Outlined.FactCheck
+    EditorAction.Sign -> Icons.AutoMirrored.Outlined.Article
+    EditorAction.Search -> Icons.Outlined.Search
+    EditorAction.Protect -> Icons.Outlined.AdminPanelSettings
+    EditorAction.Share -> Icons.Outlined.IosShare
+    EditorAction.Assistant -> Icons.Outlined.AutoAwesome
+    EditorAction.Review -> Icons.AutoMirrored.Outlined.Comment
+    EditorAction.Activity -> Icons.Outlined.History
+    EditorAction.Settings -> Icons.Outlined.Settings
+}
+
+private fun EditorAction.tooltipLabel(): String = when (this) {
+    EditorAction.Annotate -> "Annotate"
+    EditorAction.Organize -> "Organize"
+    EditorAction.Forms -> "Forms"
+    EditorAction.Sign -> "Sign"
+    EditorAction.Search -> "Search"
+    EditorAction.Protect -> "Protect"
+    EditorAction.Share -> "Share"
+    EditorAction.Assistant -> "Assistant"
+    EditorAction.Review -> "Review"
+    EditorAction.Activity -> "Activity"
+    EditorAction.Settings -> "Settings"
+}

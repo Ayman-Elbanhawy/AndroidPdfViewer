@@ -9,20 +9,27 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.AssistChip
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.ArrowForward
+import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.IosShare
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.aymanelbanhawy.editor.core.search.OutlineItem
 import com.aymanelbanhawy.editor.core.search.SearchHit
 import com.aymanelbanhawy.editor.core.search.SearchResultSet
+import com.aymanelbanhawy.enterprisepdf.app.ui.IconTooltipButton
 
 @Composable
 fun SearchSidebar(
@@ -54,9 +61,9 @@ fun SearchSidebar(
                 singleLine = true,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AssistChip(onClick = onSearch, label = { Text("Search") })
-                AssistChip(onClick = onPreviousHit, label = { Text("Prev") })
-                AssistChip(onClick = onNextHit, label = { Text("Next") })
+                IconTooltipButton(icon = Icons.Outlined.Search, tooltip = "Search", onClick = onSearch)
+                IconTooltipButton(icon = Icons.AutoMirrored.Outlined.ArrowBack, tooltip = "Previous Result", onClick = onPreviousHit)
+                IconTooltipButton(icon = Icons.AutoMirrored.Outlined.ArrowForward, tooltip = "Next Result", onClick = onNextHit)
             }
             if (isIndexing) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -67,8 +74,12 @@ fun SearchSidebar(
             if (recentSearches.isNotEmpty()) {
                 Text("Recent searches", style = MaterialTheme.typography.titleMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    recentSearches.take(4).forEach { recent ->
-                        AssistChip(onClick = { onUseRecentSearch(recent) }, label = { Text(recent) })
+                    recentSearches.take(6).forEach { recent ->
+                        IconTooltipButton(
+                            icon = Icons.Outlined.History,
+                            tooltip = "Run recent search: $recent",
+                            onClick = { onUseRecentSearch(recent) },
+                        )
                     }
                 }
             }
@@ -78,18 +89,18 @@ fun SearchSidebar(
                     SearchHitCard(hit = hit, selected = index == results.selectedHitIndex, onClick = { onSelectHit(index) })
                 }
                 if (outlineItems.isNotEmpty()) {
-                    item { Divider() }
+                    item { HorizontalDivider() }
                     item { Text("Bookmarks", style = MaterialTheme.typography.titleMedium) }
                     appendOutlineItems(outlineItems, depth = 0, onOpenOutlineItem = onOpenOutlineItem)
                 }
             }
             if (selectedText.isNotBlank()) {
-                Divider()
+                HorizontalDivider()
                 Text("Selected text", style = MaterialTheme.typography.titleMedium)
                 Text(selectedText, style = MaterialTheme.typography.bodyMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = onCopySelectedText) { Text("Copy") }
-                    TextButton(onClick = onShareSelectedText) { Text("Share") }
+                    IconTooltipButton(icon = Icons.Outlined.ContentCopy, tooltip = "Copy Selected Text", onClick = onCopySelectedText)
+                    IconTooltipButton(icon = Icons.Outlined.IosShare, tooltip = "Share Selected Text", onClick = onShareSelectedText)
                 }
             }
         }
@@ -122,9 +133,11 @@ private fun LazyListScope.appendOutlineItems(
     onOpenOutlineItem: (Int) -> Unit,
 ) {
     itemsIndexed(outline, key = { _, item -> "${depth}:${item.pageIndex}:${item.title}" }) { _, item ->
-        TextButton(onClick = { onOpenOutlineItem(item.pageIndex) }) {
-            Text("${"  ".repeat(depth)}${item.title}")
-        }
+        IconTooltipButton(
+            icon = Icons.Outlined.BookmarkBorder,
+            tooltip = "Open bookmark: ${item.title}",
+            onClick = { onOpenOutlineItem(item.pageIndex) },
+        )
     }
     outline.forEach { item ->
         appendOutlineItems(item.children, depth + 1, onOpenOutlineItem)

@@ -11,21 +11,36 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AssistChip
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Checklist
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.HelpOutline
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Subject
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.aymanelbanhawy.aiassistant.core.AssistantPrivacyMode
 import com.aymanelbanhawy.aiassistant.core.AssistantUiState
 import com.aymanelbanhawy.aiassistant.core.AssistiveSuggestionType
 import com.aymanelbanhawy.aiassistant.core.SemanticSearchCard
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun AssistantSidebar(
     modifier: Modifier = Modifier,
@@ -77,12 +92,12 @@ fun AssistantSidebar(
             }
             item {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AssistChip(onClick = onAskPdf, enabled = state.availability.enabled && !state.isWorking, label = { Text("Ask PDF") })
-                    AssistChip(onClick = onSummarizeDocument, enabled = state.availability.enabled && !state.isWorking, label = { Text("Summarize Doc") })
-                    AssistChip(onClick = onSummarizePage, enabled = state.availability.enabled && !state.isWorking, label = { Text("Summarize Page") })
-                    AssistChip(onClick = onExtractActionItems, enabled = state.availability.enabled && !state.isWorking, label = { Text("Action Items") })
-                    AssistChip(onClick = onExplainSelection, enabled = state.availability.enabled && !state.isWorking, label = { Text("Explain Selection") })
-                    AssistChip(onClick = onSemanticSearch, enabled = state.availability.enabled && !state.isWorking, label = { Text("Semantic Search") })
+                    AssistantIconButton(icon = Icons.Outlined.AutoAwesome, tooltip = "Ask PDF", enabled = state.availability.enabled && !state.isWorking, onClick = onAskPdf)
+                    AssistantIconButton(icon = Icons.Outlined.Subject, tooltip = "Summarize Document", enabled = state.availability.enabled && !state.isWorking, onClick = onSummarizeDocument)
+                    AssistantIconButton(icon = Icons.Outlined.Description, tooltip = "Summarize Page", enabled = state.availability.enabled && !state.isWorking, onClick = onSummarizePage)
+                    AssistantIconButton(icon = Icons.Outlined.Checklist, tooltip = "Extract Action Items", enabled = state.availability.enabled && !state.isWorking, onClick = onExtractActionItems)
+                    AssistantIconButton(icon = Icons.Outlined.HelpOutline, tooltip = "Explain Selection", enabled = state.availability.enabled && !state.isWorking, onClick = onExplainSelection)
+                    AssistantIconButton(icon = Icons.Outlined.Search, tooltip = "Semantic Search", enabled = state.availability.enabled && !state.isWorking, onClick = onSemanticSearch)
                 }
             }
             state.latestResult?.let { result ->
@@ -149,6 +164,27 @@ fun AssistantSidebar(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AssistantIconButton(
+    icon: ImageVector,
+    tooltip: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+        tooltip = { PlainTooltip { Text(tooltip) } },
+        state = rememberTooltipState(),
+    ) {
+        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant) {
+            IconButton(onClick = onClick, enabled = enabled) {
+                Icon(icon, contentDescription = tooltip)
+            }
+        }
+    }
+}
+
 @Composable
 private fun SemanticCard(
     card: SemanticSearchCard,
@@ -167,7 +203,3 @@ private fun SemanticCard(
         }
     }
 }
-
-
-
-
