@@ -116,6 +116,11 @@ class MainActivity : ComponentActivity() {
                             onExplainSelectionWithAi = viewModel::explainSelectionWithAi,
                             onSemanticSearchWithAi = viewModel::runAiSemanticSearch,
                             onAssistantPrivacyModeChanged = viewModel::updateAssistantPrivacyMode,
+                            onAssistantProviderDraftChanged = viewModel::updateAssistantProviderDraft,
+                            onSaveAssistantProvider = viewModel::saveAssistantProvider,
+                            onRefreshAssistantProviders = viewModel::refreshAssistantProviders,
+                            onTestAssistantConnection = viewModel::testAssistantConnection,
+                            onCancelAssistantRequest = viewModel::cancelAssistantRequest,
                             onOpenAssistantCitation = viewModel::openAssistantCitation,
                             onNextSearchHit = viewModel::nextSearchHit,
                             onPreviousSearchHit = viewModel::previousSearchHit,
@@ -197,6 +202,8 @@ class MainActivity : ComponentActivity() {
         startActivity(Intent.createChooser(sendIntent, event.title))
     }
 }
+
+
 
 
 

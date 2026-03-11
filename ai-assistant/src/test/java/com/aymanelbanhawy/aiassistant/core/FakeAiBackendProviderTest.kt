@@ -1,35 +1,47 @@
 package com.aymanelbanhawy.aiassistant.core
 
-import com.aymanelbanhawy.editor.core.model.NormalizedRect
 import com.google.common.truth.Truth.assertThat
+import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import org.junit.After
+import org.junit.Before
 import org.junit.Test
 
-class FakeAiBackendProviderTest {
-    private val provider = FakeAiBackendProvider()
+class OllamaProviderAdapterTest {
+    private lateinit var server: MockWebServer
+
+    @Before
+    fun setUp() {
+        server = MockWebServer()
+        server.start()
+    }
+
+    @After
+    fun tearDown() {
+        server.shutdown()
+    }
 
     @Test
-    fun generate_returnsGroundedSemanticCards() = kotlinx.coroutines.test.runTest {
-        val result = provider.generate(
-            AssistantPromptRequest(
-                task = AssistantTaskType.SemanticSearch,
-                prompt = "contract renewal",
-                documentTitle = "sample.pdf",
-                currentPageIndex = 0,
-                selectionText = "",
-                pageContext = listOf(
-                    GroundedPageContext(
-                        pageIndex = 1,
-                        snippets = listOf(
-                            GroundedSnippet("Contract renewal should be reviewed before signing.", NormalizedRect(0.1f, 0.1f, 0.4f, 0.2f)),
-                        ),
-                    ),
-                ),
-                privacyMode = AssistantPrivacyMode.LocalOnly,
-            ),
+    fun parsesTagsCatalog() = runTest {
+        server.enqueue(MockResponse().setBody("""
+            {"models":[{"name":"llama3.2","details":{"family":"llama"}}]}
+        """.trimIndent()))
+        val registry = ProviderRuntimeFactory(OkHttpClient(), Json { ignoreUnknownKeys = true }).createRegistry()
+        val adapter = registry.adapter(AiProviderKind.OllamaLocal)
+        val profile = AiProviderProfile(
+            id = DEFAULT_PROVIDER_ID,
+            kind = AiProviderKind.OllamaLocal,
+            displayName = "Local Ollama",
+            endpointUrl = server.url("").toString().trimEnd('/'),
+            modelId = "llama3.2",
         )
 
-        assertThat(result.semanticCards).isNotEmpty()
-        assertThat(result.citations.first().anchor.pageLabel).isEqualTo("Page 2")
-        assertThat(result.body).contains("Page 2")
+        val catalog = adapter.listModels(profile, null)
+
+        assertThat(catalog.models.first().id).isEqualTo("llama3.2")
+        assertThat(catalog.capabilities.supportsStreaming).isTrue()
     }
 }

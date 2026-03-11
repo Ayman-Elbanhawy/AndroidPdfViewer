@@ -67,6 +67,7 @@ data class AdminPolicyModel(
     val forcedWatermarkText: String = "",
     val allowedCloudConnectors: List<CloudConnector> = listOf(CloudConnector.LocalFiles),
     val aiEnabled: Boolean = false,
+    val allowCloudAiProviders: Boolean = false,
 )
 
 @Serializable

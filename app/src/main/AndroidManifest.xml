@@ -1,4 +1,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <queries>
+        <package android:name="io.ollama.app" />
+        <package android:name="org.ollama.android" />
+        <package android:name="com.termux" />
+        <package android:name="com.llamacpp.app" />
+    </queries>
+
     <application
         android:name=".EnterprisePdfApplication"
         android:allowBackup="true"

@@ -25,6 +25,12 @@ enum class AuditEventType {
     RedactionMarked,
     RedactionApplied,
     AuditExported,
+    AiProviderChanged,
+    AiModelChanged,
+    AiPromptSubmitted,
+    AiPromptCancelled,
+    AiPromptCompleted,
+    AiPromptFailed,
 }
 
 @Serializable

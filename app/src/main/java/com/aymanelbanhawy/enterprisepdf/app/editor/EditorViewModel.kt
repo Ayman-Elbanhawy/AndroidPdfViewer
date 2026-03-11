@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.graphics.BitmapFactory
 import android.net.Uri
+import com.aymanelbanhawy.aiassistant.core.AiProviderDraft
 import com.aymanelbanhawy.aiassistant.core.AssistantPrivacyMode
 import com.aymanelbanhawy.aiassistant.core.AssistantUiState
 import androidx.lifecycle.ViewModel
@@ -385,6 +386,41 @@ class EditorViewModel(
     fun updateAssistantPrompt(value: String) {
         viewModelScope.launch {
             appContainer.aiAssistantRepository.updatePrompt(value)
+            assistantState.value = appContainer.aiAssistantRepository.state.value
+        }
+    }
+
+    fun updateAssistantProviderDraft(draft: AiProviderDraft) {
+        viewModelScope.launch {
+            appContainer.aiAssistantRepository.updateProviderDraft(draft)
+            assistantState.value = appContainer.aiAssistantRepository.state.value
+        }
+    }
+
+    fun saveAssistantProvider() {
+        viewModelScope.launch {
+            appContainer.aiAssistantRepository.saveProviderDraft(entitlements.value, enterpriseState.value)
+            assistantState.value = appContainer.aiAssistantRepository.state.value
+        }
+    }
+
+    fun refreshAssistantProviders() {
+        viewModelScope.launch {
+            appContainer.aiAssistantRepository.refreshProviderCatalog(entitlements.value, enterpriseState.value)
+            assistantState.value = appContainer.aiAssistantRepository.state.value
+        }
+    }
+
+    fun testAssistantConnection() {
+        viewModelScope.launch {
+            appContainer.aiAssistantRepository.testProviderConnection(entitlements.value, enterpriseState.value)
+            assistantState.value = appContainer.aiAssistantRepository.state.value
+        }
+    }
+
+    fun cancelAssistantRequest() {
+        viewModelScope.launch {
+            appContainer.aiAssistantRepository.cancelActiveRequest()
             assistantState.value = appContainer.aiAssistantRepository.state.value
         }
     }
@@ -1201,6 +1237,7 @@ class EditorViewModel(
             entitlements = entitlements.value,
             enterpriseState = enterpriseState.value,
         )
+        appContainer.aiAssistantRepository.refreshProviderCatalog(entitlements.value, enterpriseState.value)
         assistantState.value = appContainer.aiAssistantRepository.state.value
     }
     private suspend fun refreshEnterpriseData() {
@@ -1322,6 +1359,8 @@ class EditorViewModel(
 }
 
 private fun Set<Int>.toggle(index: Int): Set<Int> = if (index in this) this - index else this + index
+
+
 
 
 

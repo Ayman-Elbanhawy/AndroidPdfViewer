@@ -15,6 +15,7 @@ import com.aymanelbanhawy.editor.core.search.DocumentSearchService
 import com.aymanelbanhawy.editor.core.security.SecurityRepository
 import com.aymanelbanhawy.editor.core.session.EditorSession
 import com.aymanelbanhawy.editor.core.work.SearchIndexScheduler
+import kotlinx.coroutines.runBlocking
 
 class AppContainer(
     private val editorCoreContainer: EditorCoreContainer,
@@ -30,20 +31,19 @@ class AppContainer(
     val securityRepository: SecurityRepository get() = editorCoreContainer.securityRepository
     val enterpriseAdminRepository: EnterpriseAdminRepository get() = editorCoreContainer.enterpriseAdminRepository
     val aiAssistantRepository: AiAssistantRepository by lazy {
-        DefaultAiAssistantRepository(
-            context = appContext,
-            documentSearchService = editorCoreContainer.documentSearchService,
-        )
+        runBlocking {
+            DefaultAiAssistantRepository.create(
+                context = appContext,
+                documentSearchService = editorCoreContainer.documentSearchService,
+                enterpriseAdminRepository = editorCoreContainer.enterpriseAdminRepository,
+                securityRepository = editorCoreContainer.securityRepository,
+            )
+        }
     }
 
     fun createSession(): EditorSession = editorCoreContainer.newSession()
 
     fun seedDocumentRequest(): OpenDocumentRequest {
-        return OpenDocumentRequest.FromAsset(
-            assetName = "sample.pdf",
-            displayName = "sample.pdf",
-        )
+        return OpenDocumentRequest.FromAsset(assetName = "sample.pdf", displayName = "sample.pdf")
     }
 }
-
-

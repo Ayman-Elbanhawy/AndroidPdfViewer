@@ -61,6 +61,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.aymanelbanhawy.aiassistant.core.AiProviderDraft
 import com.aymanelbanhawy.aiassistant.core.AssistantPrivacyMode
 import com.aymanelbanhawy.aiassistant.ui.AssistantSidebar
 import com.aymanelbanhawy.editor.core.collaboration.ReviewFilterModel
@@ -151,6 +152,11 @@ fun EditorScreen(
     onExplainSelectionWithAi: () -> Unit,
     onSemanticSearchWithAi: () -> Unit,
     onAssistantPrivacyModeChanged: (AssistantPrivacyMode) -> Unit,
+    onAssistantProviderDraftChanged: (AiProviderDraft) -> Unit,
+    onSaveAssistantProvider: () -> Unit,
+    onRefreshAssistantProviders: () -> Unit,
+    onTestAssistantConnection: () -> Unit,
+    onCancelAssistantRequest: () -> Unit,
     onOpenAssistantCitation: (Int) -> Unit,
     onNextSearchHit: () -> Unit,
     onPreviousSearchHit: () -> Unit,
@@ -386,6 +392,11 @@ fun EditorScreen(
                         onExplainSelection = onExplainSelectionWithAi,
                         onSemanticSearch = onSemanticSearchWithAi,
                         onPrivacyModeChanged = onAssistantPrivacyModeChanged,
+                        onProviderDraftChanged = onAssistantProviderDraftChanged,
+                        onSaveProvider = onSaveAssistantProvider,
+                        onRefreshProviders = onRefreshAssistantProviders,
+                        onTestConnection = onTestAssistantConnection,
+                        onCancelRequest = onCancelAssistantRequest,
                         onOpenCitation = onOpenAssistantCitation,
                     )
                 }
@@ -621,3 +632,5 @@ private fun EditorAction.tooltipLabel(): String = when (this) {
     EditorAction.Activity -> "Activity"
     EditorAction.Settings -> "Settings"
 }
+
+

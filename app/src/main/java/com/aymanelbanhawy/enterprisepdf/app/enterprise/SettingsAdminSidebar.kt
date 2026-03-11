@@ -121,6 +121,7 @@ fun SettingsAdminSidebar(
                         Text("Admin Policy", style = MaterialTheme.typography.titleMedium)
                         ToggleRow("Restrict export", state.adminPolicy.restrictExport) { onUpdatePolicy(state.adminPolicy.copy(restrictExport = it)) }
                         ToggleRow("AI enabled", state.adminPolicy.aiEnabled) { onUpdatePolicy(state.adminPolicy.copy(aiEnabled = it)) }
+                        ToggleRow("Allow cloud AI providers", state.adminPolicy.allowCloudAiProviders) { onUpdatePolicy(state.adminPolicy.copy(allowCloudAiProviders = it)) }
                         ToggleRow("Allow Google Drive", CloudConnector.GoogleDrive in state.adminPolicy.allowedCloudConnectors) {
                             val connectors = state.adminPolicy.allowedCloudConnectors.toMutableSet()
                             if (it) connectors.add(CloudConnector.GoogleDrive) else connectors.remove(CloudConnector.GoogleDrive)
@@ -165,3 +166,5 @@ private fun ToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
+
+
