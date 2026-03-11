@@ -49,6 +49,7 @@ android {
 
 dependencies {
     implementation project(':editor-core')
+    implementation project(':ai-assistant')
     implementation project(':viewer-engine')
     implementation 'androidx.core:core-ktx:1.15.0'
     implementation 'androidx.activity:activity-compose:1.9.3'
@@ -61,6 +62,7 @@ dependencies {
     implementation 'com.google.android.material:material:1.12.0'
     implementation 'androidx.compose.material:material-icons-extended:1.7.6'
     implementation 'androidx.work:work-runtime-ktx:2.10.0'
+    implementation 'androidx.biometric:biometric:1.1.0'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'
 
     debugImplementation 'androidx.compose.ui:ui-tooling:1.7.6'
@@ -71,4 +73,6 @@ dependencies {
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'
     androidTestImplementation 'androidx.compose.ui:ui-test-junit4:1.7.6'
 }
+
+
 

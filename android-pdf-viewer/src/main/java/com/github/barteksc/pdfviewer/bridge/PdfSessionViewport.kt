@@ -10,6 +10,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.aymanelbanhawy.editor.core.model.AnnotationTool
 import com.aymanelbanhawy.editor.core.model.DocumentModel
 import com.aymanelbanhawy.editor.core.model.SelectionModel
+import com.aymanelbanhawy.editor.core.search.ExtractedTextBlock
+import com.aymanelbanhawy.editor.core.search.SearchHit
 
 @Composable
 fun PdfSessionViewport(
@@ -17,6 +19,8 @@ fun PdfSessionViewport(
     selection: SelectionModel,
     activeTool: AnnotationTool,
     currentPage: Int,
+    searchHits: List<SearchHit>,
+    selectedTextBlocks: List<ExtractedTextBlock>,
     modifier: Modifier = Modifier,
     callbacks: PdfViewportCallbacks = PdfViewportCallbacks(),
 ) {
@@ -33,7 +37,15 @@ fun PdfSessionViewport(
         update = {
             document?.let { loadedDocument ->
                 adapterHolder.adapter?.open(loadedDocument.documentRef, currentPage, latestCallbacks)
-                adapterHolder.adapter?.renderAnnotations(loadedDocument.pages, loadedDocument.formDocument, selection, activeTool, latestCallbacks)
+                adapterHolder.adapter?.renderDocumentState(
+                    pages = loadedDocument.pages,
+                    formDocument = loadedDocument.formDocument,
+                    selection = selection,
+                    activeTool = activeTool,
+                    searchHits = searchHits,
+                    selectedTextBlocks = selectedTextBlocks,
+                    callbacks = latestCallbacks,
+                )
             }
         },
     )
@@ -46,3 +58,4 @@ fun PdfSessionViewport(
 private class AdapterHolder {
     var adapter: PdfViewportAdapter? = null
 }
+

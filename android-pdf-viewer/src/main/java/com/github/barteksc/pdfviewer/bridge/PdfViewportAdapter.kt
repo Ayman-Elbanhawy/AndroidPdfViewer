@@ -7,6 +7,8 @@ import com.aymanelbanhawy.editor.core.model.PageEditModel
 import com.aymanelbanhawy.editor.core.model.PageModel
 import com.aymanelbanhawy.editor.core.model.PdfDocumentRef
 import com.aymanelbanhawy.editor.core.model.SelectionModel
+import com.aymanelbanhawy.editor.core.search.ExtractedTextBlock
+import com.aymanelbanhawy.editor.core.search.SearchHit
 
 data class PdfViewportCallbacks(
     val onDocumentLoaded: (pageCount: Int) -> Unit = {},
@@ -22,6 +24,15 @@ data class PdfViewportCallbacks(
 
 interface PdfViewportAdapter {
     fun open(document: PdfDocumentRef, defaultPage: Int, callbacks: PdfViewportCallbacks)
-    fun renderAnnotations(pages: List<PageModel>, formDocument: FormDocumentModel, selection: SelectionModel, activeTool: AnnotationTool, callbacks: PdfViewportCallbacks)
+    fun renderDocumentState(
+        pages: List<PageModel>,
+        formDocument: FormDocumentModel,
+        selection: SelectionModel,
+        activeTool: AnnotationTool,
+        searchHits: List<SearchHit>,
+        selectedTextBlocks: List<ExtractedTextBlock>,
+        callbacks: PdfViewportCallbacks,
+    )
     fun recycle()
 }
+

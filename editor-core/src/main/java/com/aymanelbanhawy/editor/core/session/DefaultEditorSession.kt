@@ -87,7 +87,11 @@ class DefaultEditorSession(
                 EditorAction.Forms -> "Forms workspace is active."
                 EditorAction.Sign -> "Signature workspace is active."
                 EditorAction.Search -> "Search remains available while editing."
+                EditorAction.Assistant -> "AI assistant workspace is active."
+                EditorAction.Review -> "Review workspace is active."
+                EditorAction.Activity -> "Activity workspace is active."
                 EditorAction.Protect -> "Protection settings remain a repository concern."
+                EditorAction.Settings -> "Settings and admin workspace is active."
                 EditorAction.Share -> null
             }
             if (action == EditorAction.Share) {
@@ -182,5 +186,3 @@ class DefaultEditorSession(
         )
     }
 }
-
-

@@ -14,6 +14,7 @@ import java.io.File
 sealed interface EditorSessionEvent {
     data class UserMessage(val message: String) : EditorSessionEvent
     data class ShareDocument(val document: DocumentModel) : EditorSessionEvent
+    data class ShareText(val title: String, val text: String) : EditorSessionEvent
 }
 
 interface EditorSession {

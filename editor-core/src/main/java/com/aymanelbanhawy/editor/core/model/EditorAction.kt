@@ -9,6 +9,10 @@ enum class EditorAction {
     Forms,
     Sign,
     Search,
+    Assistant,
+    Review,
+    Activity,
     Protect,
+    Settings,
     Share,
 }

@@ -49,15 +49,34 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.aymanelbanhawy.aiassistant.core.AssistantPrivacyMode
+import com.aymanelbanhawy.aiassistant.ui.AssistantSidebar
+import com.aymanelbanhawy.editor.core.collaboration.ReviewFilterModel
+import com.aymanelbanhawy.editor.core.enterprise.AdminPolicyModel
+import com.aymanelbanhawy.editor.core.enterprise.LicensePlan
+import com.aymanelbanhawy.editor.core.enterprise.PrivacySettingsModel
+import com.aymanelbanhawy.editor.core.enterprise.TenantConfigurationModel
 import com.aymanelbanhawy.editor.core.forms.SignatureKind
+import com.aymanelbanhawy.editor.core.security.DocumentPermissionModel
+import com.aymanelbanhawy.editor.core.security.MetadataScrubOptionsModel
+import com.aymanelbanhawy.editor.core.security.TenantPolicyHooksModel
 import com.aymanelbanhawy.editor.core.model.AnnotationModel
 import com.aymanelbanhawy.editor.core.model.AnnotationTool
 import com.aymanelbanhawy.editor.core.model.EditorAction
 import com.aymanelbanhawy.editor.core.model.FontFamilyToken
+import com.aymanelbanhawy.editor.core.model.PageEditModel
 import com.aymanelbanhawy.editor.core.model.TextAlignment
+import com.aymanelbanhawy.editor.core.scan.ScanImportOptions
 import com.aymanelbanhawy.editor.core.session.EditorSessionEvent
+import com.aymanelbanhawy.enterprisepdf.app.collaboration.ActivitySidebar
+import com.aymanelbanhawy.enterprisepdf.app.collaboration.ReviewSidebar
+import com.aymanelbanhawy.enterprisepdf.app.enterprise.SettingsAdminSidebar
 import com.aymanelbanhawy.enterprisepdf.app.forms.FormsSidebar
 import com.aymanelbanhawy.enterprisepdf.app.forms.SignatureCaptureDialog
+import com.aymanelbanhawy.enterprisepdf.app.scan.ScanImportDialog
+import com.aymanelbanhawy.enterprisepdf.app.search.SearchSidebar
+import com.aymanelbanhawy.enterprisepdf.app.security.AppLockDialog
+import com.aymanelbanhawy.enterprisepdf.app.security.SecuritySidebar
 import com.github.barteksc.pdfviewer.bridge.PdfSessionViewport
 import com.github.barteksc.pdfviewer.bridge.PdfViewportCallbacks
 import kotlinx.coroutines.flow.Flow
@@ -77,7 +96,7 @@ fun EditorScreen(
     onAnnotationSelectionChanged: (Int, Set<String>) -> Unit,
     onFormFieldTapped: (String) -> Unit,
     onPageEditSelectionChanged: (Int, String?) -> Unit,
-    onPageEditUpdated: (com.aymanelbanhawy.editor.core.model.PageEditModel, com.aymanelbanhawy.editor.core.model.PageEditModel) -> Unit,
+    onPageEditUpdated: (PageEditModel, PageEditModel) -> Unit,
     onSidebarToggle: () -> Unit,
     onDeleteSelected: () -> Unit,
     onDuplicateSelected: () -> Unit,
@@ -109,6 +128,57 @@ fun EditorScreen(
     onSelectedEditLineSpacingChanged: (Float) -> Unit,
     onSelectedEditOpacityChanged: (Float) -> Unit,
     onSelectedEditRotationChanged: (Float) -> Unit,
+    onSearchQueryChanged: (String) -> Unit,
+    onSearch: () -> Unit,
+    onAssistantPromptChanged: (String) -> Unit,
+    onAskPdf: () -> Unit,
+    onSummarizeDocumentWithAi: () -> Unit,
+    onSummarizePageWithAi: () -> Unit,
+    onExtractActionItemsWithAi: () -> Unit,
+    onExplainSelectionWithAi: () -> Unit,
+    onSemanticSearchWithAi: () -> Unit,
+    onAssistantPrivacyModeChanged: (AssistantPrivacyMode) -> Unit,
+    onOpenAssistantCitation: (Int) -> Unit,
+    onNextSearchHit: () -> Unit,
+    onPreviousSearchHit: () -> Unit,
+    onSelectSearchHit: (Int) -> Unit,
+    onUseRecentSearch: (String) -> Unit,
+    onOpenOutlineItem: (Int) -> Unit,
+    onCopySelectedText: () -> Unit,
+    onShareSelectedText: () -> Unit,
+    onShowScanImport: () -> Unit,
+    onDismissScanImport: () -> Unit,
+    onScanImportOptionsChanged: (ScanImportOptions) -> Unit,
+    onPickScanImages: () -> Unit,
+    onCreateShareLink: () -> Unit,
+    onCreateSnapshot: () -> Unit,
+    onSyncNow: () -> Unit,
+    onReviewFilterChanged: (ReviewFilterModel) -> Unit,
+    onAddReviewThread: (String, String) -> Unit,
+    onAddReviewReply: (String, String) -> Unit,
+    onToggleThreadResolved: (String, Boolean) -> Unit,
+    onConfigureAppLock: (Boolean, String, Boolean, Int) -> Unit,
+    onUnlockWithPin: (String) -> Unit,
+    onUnlockWithBiometric: () -> Unit,
+    onLockNow: () -> Unit,
+    onUpdatePermissions: (DocumentPermissionModel) -> Unit,
+    onUpdateTenantPolicy: (TenantPolicyHooksModel) -> Unit,
+    onUpdatePasswordProtection: (Boolean, String, String) -> Unit,
+    onUpdateWatermark: (Boolean, String) -> Unit,
+    onUpdateMetadataScrub: (MetadataScrubOptionsModel) -> Unit,
+    onInspectSecurity: () -> Unit,
+    onMarkRedaction: () -> Unit,
+    onPreviewRedactions: (Boolean) -> Unit,
+    onApplyRedactions: () -> Unit,
+    onRemoveRedaction: (String) -> Unit,
+    onExportAuditTrail: () -> Unit,
+    onSignInPersonal: (String) -> Unit,
+    onSignInEnterprise: (String, TenantConfigurationModel) -> Unit,
+    onSignOutEnterprise: () -> Unit,
+    onSetEnterprisePlan: (LicensePlan) -> Unit,
+    onUpdateEnterprisePrivacy: (PrivacySettingsModel) -> Unit,
+    onUpdateEnterprisePolicy: (AdminPolicyModel) -> Unit,
+    onGenerateDiagnosticsBundle: () -> Unit,
     onRotatePage: () -> Unit,
     onReorderPages: () -> Unit,
     onUndo: () -> Unit,
@@ -118,6 +188,7 @@ fun EditorScreen(
     onSaveAsEditable: () -> Unit,
     onSaveAsFlattened: () -> Unit,
     onShareRequested: (EditorSessionEvent.ShareDocument) -> Unit,
+    onShareTextRequested: (EditorSessionEvent.ShareText) -> Unit,
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     var overflowExpanded by remember { mutableStateOf(false) }
@@ -128,13 +199,30 @@ fun EditorScreen(
         events.collectLatest { event ->
             when (event) {
                 is EditorSessionEvent.ShareDocument -> onShareRequested(event)
+                is EditorSessionEvent.ShareText -> onShareTextRequested(event)
                 is EditorSessionEvent.UserMessage -> snackbarHostState.showSnackbar(event.message)
             }
         }
     }
 
+    if (state.appLockState.isLocked && state.appLockSettings.enabled) {
+        AppLockDialog(
+            settings = state.appLockSettings,
+            state = state.appLockState,
+            onUnlockWithPin = onUnlockWithPin,
+            onUnlockWithBiometric = onUnlockWithBiometric,
+        )
+    }
     if (state.signatureCaptureVisible) {
         SignatureCaptureDialog(onDismiss = onDismissSignatureCapture, onSave = onSaveSignatureCapture)
+    }
+    if (state.scanImportVisible) {
+        ScanImportDialog(
+            options = state.scanImportOptions,
+            onOptionsChanged = onScanImportOptionsChanged,
+            onDismiss = onDismissScanImport,
+            onPickImages = onPickScanImages,
+        )
     }
 
     Scaffold(
@@ -164,6 +252,7 @@ fun EditorScreen(
                         DropdownMenuItem(text = { Text("Save Editable Copy") }, onClick = { overflowExpanded = false; onSaveAsEditable() })
                         DropdownMenuItem(text = { Text("Save Flattened Copy") }, onClick = { overflowExpanded = false; onSaveAsFlattened() })
                         DropdownMenuItem(text = { Text("Import Form Profile") }, onClick = { overflowExpanded = false; onImportProfile() })
+                        DropdownMenuItem(text = { Text("Import Scan Images") }, onClick = { overflowExpanded = false; onShowScanImport() })
                         DropdownMenuItem(text = { Text(if (state.annotationSidebarVisible) "Hide Sidebar" else "Show Sidebar") }, onClick = { overflowExpanded = false; onSidebarToggle() })
                     }
                 },
@@ -184,6 +273,12 @@ fun EditorScreen(
                                 EditorAction.Annotate -> state.activePanel == WorkspacePanel.Annotate
                                 EditorAction.Forms -> state.activePanel == WorkspacePanel.Forms
                                 EditorAction.Sign -> state.activePanel == WorkspacePanel.Sign
+                                EditorAction.Search -> state.activePanel == WorkspacePanel.Search
+                                EditorAction.Assistant -> state.activePanel == WorkspacePanel.Assistant
+                                EditorAction.Review -> state.activePanel == WorkspacePanel.Review
+                                EditorAction.Activity -> state.activePanel == WorkspacePanel.Activity
+                                EditorAction.Protect -> state.activePanel == WorkspacePanel.Protect
+                                EditorAction.Settings -> state.activePanel == WorkspacePanel.Settings
                                 else -> false
                             },
                             onClick = { onActionSelected(action) },
@@ -224,6 +319,8 @@ fun EditorScreen(
                         selection = session.selection,
                         activeTool = state.activeTool,
                         currentPage = session.selection.selectedPageIndex,
+                        searchHits = state.searchResults.hits,
+                        selectedTextBlocks = state.selectedTextSelection?.blocks.orEmpty(),
                         callbacks = PdfViewportCallbacks(
                             onDocumentLoaded = onDocumentLoaded,
                             onPageChanged = onPageChanged,
@@ -238,6 +335,102 @@ fun EditorScreen(
                 }
             }
             when {
+                state.activePanel == WorkspacePanel.Search && state.annotationSidebarVisible -> {
+                    SearchSidebar(
+                        modifier = Modifier.width(380.dp).fillMaxHeight().padding(12.dp),
+                        query = state.searchQuery,
+                        results = state.searchResults,
+                        recentSearches = state.recentSearches,
+                        outlineItems = state.outlineItems,
+                        selectedText = state.selectedTextSelection?.text.orEmpty(),
+                        isIndexing = state.isSearchIndexing,
+                        onQueryChanged = onSearchQueryChanged,
+                        onSearch = onSearch,
+                        onSelectHit = onSelectSearchHit,
+                        onPreviousHit = onPreviousSearchHit,
+                        onNextHit = onNextSearchHit,
+                        onUseRecentSearch = onUseRecentSearch,
+                        onOpenOutlineItem = onOpenOutlineItem,
+                        onCopySelectedText = onCopySelectedText,
+                        onShareSelectedText = onShareSelectedText,
+                    )
+                }
+                state.activePanel == WorkspacePanel.Assistant && state.annotationSidebarVisible -> {
+                    AssistantSidebar(
+                        modifier = Modifier.width(420.dp).fillMaxHeight().padding(12.dp),
+                        state = state.assistantState,
+                        onPromptChanged = onAssistantPromptChanged,
+                        onAskPdf = onAskPdf,
+                        onSummarizeDocument = onSummarizeDocumentWithAi,
+                        onSummarizePage = onSummarizePageWithAi,
+                        onExtractActionItems = onExtractActionItemsWithAi,
+                        onExplainSelection = onExplainSelectionWithAi,
+                        onSemanticSearch = onSemanticSearchWithAi,
+                        onPrivacyModeChanged = onAssistantPrivacyModeChanged,
+                        onOpenCitation = onOpenAssistantCitation,
+                    )
+                }
+                state.activePanel == WorkspacePanel.Review && state.annotationSidebarVisible -> {
+                    ReviewSidebar(
+                        modifier = Modifier.width(420.dp).fillMaxHeight().padding(12.dp),
+                        shareLinks = state.shareLinks,
+                        reviewThreads = state.reviewThreads,
+                        snapshots = state.versionSnapshots,
+                        filter = state.reviewFilter,
+                        pendingSyncCount = state.pendingSyncCount,
+                        onCreateShareLink = onCreateShareLink,
+                        onCreateSnapshot = onCreateSnapshot,
+                        onSyncNow = onSyncNow,
+                        onFilterChanged = onReviewFilterChanged,
+                        onAddThread = onAddReviewThread,
+                        onAddReply = onAddReviewReply,
+                        onToggleResolved = onToggleThreadResolved,
+                    )
+                }
+                state.activePanel == WorkspacePanel.Activity && state.annotationSidebarVisible -> {
+                    ActivitySidebar(
+                        modifier = Modifier.width(380.dp).fillMaxHeight().padding(12.dp),
+                        events = state.activityEvents,
+                        pendingSyncCount = state.pendingSyncCount,
+                        onSyncNow = onSyncNow,
+                    )
+                }
+                state.activePanel == WorkspacePanel.Settings && state.annotationSidebarVisible -> {
+                    SettingsAdminSidebar(
+                        modifier = Modifier.width(420.dp).fillMaxHeight().padding(12.dp),
+                        state = state.enterpriseState,
+                        entitlements = state.entitlements,
+                        telemetryEvents = state.telemetryEvents,
+                        diagnosticsCount = state.diagnosticsBundleCount,
+                        onSignInPersonal = onSignInPersonal,
+                        onSignInEnterprise = onSignInEnterprise,
+                        onSignOut = onSignOutEnterprise,
+                        onSetPlan = onSetEnterprisePlan,
+                        onUpdatePrivacy = onUpdateEnterprisePrivacy,
+                        onUpdatePolicy = onUpdateEnterprisePolicy,
+                        onGenerateDiagnostics = onGenerateDiagnosticsBundle,
+                    )
+                }                state.activePanel == WorkspacePanel.Protect && state.annotationSidebarVisible -> {
+                    SecuritySidebar(
+                        modifier = Modifier.width(420.dp).fillMaxHeight().padding(12.dp),
+                        security = state.session.document?.security ?: com.aymanelbanhawy.editor.core.security.SecurityDocumentModel(),
+                        appLockSettings = state.appLockSettings,
+                        auditEvents = state.securityAuditEvents,
+                        onConfigureAppLock = onConfigureAppLock,
+                        onLockNow = onLockNow,
+                        onUpdatePermissions = onUpdatePermissions,
+                        onUpdateTenantPolicy = onUpdateTenantPolicy,
+                        onUpdatePasswordProtection = onUpdatePasswordProtection,
+                        onUpdateWatermark = onUpdateWatermark,
+                        onUpdateMetadataScrub = onUpdateMetadataScrub,
+                        onInspect = onInspectSecurity,
+                        onMarkRedaction = onMarkRedaction,
+                        onPreviewRedactions = onPreviewRedactions,
+                        onApplyRedactions = onApplyRedactions,
+                        onRemoveRedaction = onRemoveRedaction,
+                        onExportAudit = onExportAuditTrail,
+                    )
+                }
                 state.activePanel == WorkspacePanel.Annotate && state.selectedEditObject != null && state.annotationSidebarVisible -> {
                     EditInspectorSidebar(
                         modifier = Modifier.width(360.dp).fillMaxHeight().padding(12.dp),
@@ -356,3 +549,9 @@ private fun AnnotationTool.label(): String = when (this) {
     AnnotationTool.StickyNote -> "Note"
     AnnotationTool.TextBox -> "Text"
 }
+
+
+
+
+
+

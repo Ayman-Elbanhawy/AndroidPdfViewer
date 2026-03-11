@@ -10,8 +10,22 @@ import androidx.room.RoomDatabase
         EditHistoryMetadataEntity::class,
         FormProfileEntity::class,
         SavedSignatureEntity::class,
+        RecentSearchEntity::class,
+        SearchIndexEntity::class,
+        OcrJobEntity::class,
+        ShareLinkEntity::class,
+        ReviewThreadEntity::class,
+        ReviewCommentEntity::class,
+        VersionSnapshotEntity::class,
+        ActivityEventEntity::class,
+        SyncQueueEntity::class,
+        AppLockSettingsEntity::class,
+        DocumentSecurityEntity::class,
+        AuditTrailEventEntity::class,
+        EnterpriseSettingsEntity::class,
+        TelemetryEventEntity::class,
     ],
-    version = 3,
+    version = 7,
     exportSchema = false,
 )
 abstract class PdfWorkspaceDatabase : RoomDatabase() {
@@ -20,4 +34,18 @@ abstract class PdfWorkspaceDatabase : RoomDatabase() {
     abstract fun editHistoryMetadataDao(): EditHistoryMetadataDao
     abstract fun formProfileDao(): FormProfileDao
     abstract fun savedSignatureDao(): SavedSignatureDao
+    abstract fun recentSearchDao(): RecentSearchDao
+    abstract fun searchIndexDao(): SearchIndexDao
+    abstract fun ocrJobDao(): OcrJobDao
+    abstract fun shareLinkDao(): ShareLinkDao
+    abstract fun reviewThreadDao(): ReviewThreadDao
+    abstract fun reviewCommentDao(): ReviewCommentDao
+    abstract fun versionSnapshotDao(): VersionSnapshotDao
+    abstract fun activityEventDao(): ActivityEventDao
+    abstract fun syncQueueDao(): SyncQueueDao
+    abstract fun appLockSettingsDao(): AppLockSettingsDao
+    abstract fun documentSecurityDao(): DocumentSecurityDao
+    abstract fun auditTrailEventDao(): AuditTrailEventDao
+    abstract fun enterpriseSettingsDao(): EnterpriseSettingsDao
+    abstract fun telemetryEventDao(): TelemetryEventDao
 }

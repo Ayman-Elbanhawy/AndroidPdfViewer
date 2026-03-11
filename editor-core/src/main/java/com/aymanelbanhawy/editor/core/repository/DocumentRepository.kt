@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.core.net.toUri
+import com.aymanelbanhawy.editor.core.data.DocumentSecurityDao
+import com.aymanelbanhawy.editor.core.data.DocumentSecurityEntity
 import com.aymanelbanhawy.editor.core.data.DraftDao
 import com.aymanelbanhawy.editor.core.data.DraftEntity
 import com.aymanelbanhawy.editor.core.data.EditHistoryMetadataDao
@@ -30,6 +32,14 @@ import com.aymanelbanhawy.editor.core.model.PdfDocumentRef
 import com.aymanelbanhawy.editor.core.model.SelectionModel
 import com.aymanelbanhawy.editor.core.model.UndoRedoState
 import com.aymanelbanhawy.editor.core.organize.SplitPlanner
+import com.aymanelbanhawy.editor.core.security.AndroidSecureFileCipher
+import com.aymanelbanhawy.editor.core.security.MetadataScrubOptionsModel
+import com.aymanelbanhawy.editor.core.security.PasswordProtectionModel
+import com.aymanelbanhawy.editor.core.security.RedactionMarkModel
+import com.aymanelbanhawy.editor.core.security.RedactionStatus
+import com.aymanelbanhawy.editor.core.security.SecurityDocumentModel
+import com.aymanelbanhawy.editor.core.security.SecureFileCipher
+import com.aymanelbanhawy.editor.core.security.WatermarkModel
 import com.aymanelbanhawy.editor.core.organize.SplitRequest
 import com.aymanelbanhawy.editor.core.write.PdfBoxWriteEngine
 import com.aymanelbanhawy.editor.core.write.PdfWriteEngine
@@ -46,6 +56,9 @@ import com.tom_roush.pdfbox.pdmodel.interactive.form.PDField
 import com.tom_roush.pdfbox.pdmodel.interactive.form.PDRadioButton
 import com.tom_roush.pdfbox.pdmodel.interactive.form.PDSignatureField
 import com.tom_roush.pdfbox.pdmodel.interactive.form.PDTextField
+import com.tom_roush.pdfbox.pdmodel.encryption.AccessPermission
+import com.tom_roush.pdfbox.pdmodel.encryption.StandardProtectionPolicy
+import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
 import java.io.File
 import java.util.UUID
 import kotlinx.serialization.Serializable
@@ -79,8 +92,10 @@ class DefaultDocumentRepository(
     private val recentDocumentDao: RecentDocumentDao,
     private val draftDao: DraftDao,
     private val editHistoryMetadataDao: EditHistoryMetadataDao,
+    private val documentSecurityDao: DocumentSecurityDao,
     private val annotationPersistenceGateway: AnnotationPersistenceGateway = JsonAnnotationPersistenceGateway(),
     private val pdfWriteEngine: PdfWriteEngine = PdfBoxWriteEngine(context),
+    private val secureFileCipher: SecureFileCipher = AndroidSecureFileCipher(context),
     private val json: Json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
@@ -394,6 +409,117 @@ class DefaultDocumentRepository(
         }
     }
 
+    private suspend fun loadSecurity(documentKey: String): SecurityDocumentModel {
+        return documentSecurityDao.get(documentKey)?.let { json.decodeFromString(SecurityDocumentModel.serializer(), it.payloadJson) }
+            ?: SecurityDocumentModel()
+    }
+
+    private suspend fun persistSecurity(documentKey: String, security: SecurityDocumentModel) {
+        documentSecurityDao.upsert(
+            DocumentSecurityEntity(
+                documentKey = documentKey,
+                payloadJson = json.encodeToString(SecurityDocumentModel.serializer(), security),
+                updatedAtEpochMillis = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    private fun applySecurity(security: SecurityDocumentModel, destination: File) {
+        if (!destination.exists()) return
+        PDDocument.load(destination).use { document ->
+            if (security.metadataScrub.enabled) {
+                scrubMetadata(document, security.metadataScrub)
+            }
+            if (security.watermark.enabled && security.watermark.text.isNotBlank()) {
+                applyWatermark(document, security.watermark)
+            }
+            val redactions = security.redactionWorkflow.marks.filter { it.status == RedactionStatus.Applied }
+            if (redactions.isNotEmpty()) {
+                applyRedactions(document, redactions)
+            }
+            if (security.passwordProtection.enabled && (security.passwordProtection.ownerPassword.isNotBlank() || security.passwordProtection.userPassword.isNotBlank())) {
+                applyPasswordProtection(document, security.passwordProtection, security.permissions)
+            }
+            document.save(destination)
+        }
+    }
+
+    private fun scrubMetadata(document: PDDocument, options: MetadataScrubOptionsModel) {
+        val info = document.documentInformation
+        if (options.scrubAuthor) info.author = ""
+        if (options.scrubTitle) info.title = ""
+        if (options.scrubSubject) info.subject = ""
+        if (options.scrubKeywords) info.keywords = ""
+        if (options.scrubCreator) info.creator = ""
+        if (options.scrubProducer) info.producer = ""
+        if (options.scrubDates) {
+            info.creationDate = null
+            info.modificationDate = null
+        }
+        document.documentInformation = info
+    }
+
+    private fun applyPasswordProtection(document: PDDocument, protection: PasswordProtectionModel, permissions: com.aymanelbanhawy.editor.core.security.DocumentPermissionModel) {
+        val accessPermission = AccessPermission().apply {
+            setCanPrint(permissions.allowPrint)
+            setCanExtractContent(permissions.allowCopy)
+            setCanModify(permissions.allowExport)
+            setCanModifyAnnotations(true)
+        }
+        val policy = StandardProtectionPolicy(
+            protection.ownerPassword.ifBlank { protection.userPassword.ifBlank { UUID.randomUUID().toString() } },
+            protection.userPassword,
+            accessPermission,
+        )
+        policy.encryptionKeyLength = 256
+        document.protect(policy)
+    }
+
+    private fun applyWatermark(document: PDDocument, watermark: WatermarkModel) {
+        val color = android.graphics.Color.parseColor(watermark.textColorHex)
+        val red = android.graphics.Color.red(color) / 255f
+        val green = android.graphics.Color.green(color) / 255f
+        val blue = android.graphics.Color.blue(color) / 255f
+        repeat(document.numberOfPages) { pageIndex ->
+            val page = document.getPage(pageIndex)
+            val mediaBox = page.mediaBox
+            PDPageContentStream(document, page, PDPageContentStream.AppendMode.APPEND, true, true).use { content ->
+                content.setNonStrokingColor(red, green, blue)
+                content.beginText()
+                content.setFont(PDType1Font.HELVETICA_BOLD, watermark.fontSize)
+                content.setTextMatrix(
+                    com.tom_roush.pdfbox.util.Matrix.getRotateInstance(
+                        Math.toRadians(watermark.rotationDegrees.toDouble()),
+                        mediaBox.width / 4f,
+                        mediaBox.height / 2f,
+                    ),
+                )
+                content.showText(watermark.text)
+                content.endText()
+            }
+        }
+    }
+
+    private fun applyRedactions(document: PDDocument, marks: List<RedactionMarkModel>) {
+        marks.groupBy { it.pageIndex }.forEach { (pageIndex, pageMarks) ->
+            if (pageIndex !in 0 until document.numberOfPages) return@forEach
+            val page = document.getPage(pageIndex)
+            val mediaBox = page.mediaBox
+            PDPageContentStream(document, page, PDPageContentStream.AppendMode.APPEND, true, true).use { content ->
+                pageMarks.forEach { mark ->
+                    val rect = PDRectangle(
+                        mark.bounds.left * mediaBox.width,
+                        mediaBox.height - (mark.bounds.bottom * mediaBox.height),
+                        mark.bounds.width * mediaBox.width,
+                        mark.bounds.height * mediaBox.height,
+                    )
+                    content.setNonStrokingColor(0f, 0f, 0f)
+                    content.addRect(rect.lowerLeftX, rect.lowerLeftY - rect.height, rect.width, rect.height)
+                    content.fill()
+                }
+            }
+        }
+    }
     private fun createWorkingFile(displayName: String): File {
         val dir = File(context.filesDir, "working-documents").apply { mkdirs() }
         val sanitized = displayName.ifBlank { "document.pdf" }
@@ -449,3 +575,9 @@ private data class AnnotationSidecarPayload(
     val annotations: List<AnnotationModel>,
     val updatedAtEpochMillis: Long,
 )
+
+
+
+
+
+

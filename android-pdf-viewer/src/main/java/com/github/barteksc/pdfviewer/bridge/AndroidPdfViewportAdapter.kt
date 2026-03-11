@@ -5,6 +5,8 @@ import com.aymanelbanhawy.editor.core.model.AnnotationTool
 import com.aymanelbanhawy.editor.core.model.PageModel
 import com.aymanelbanhawy.editor.core.model.PdfDocumentRef
 import com.aymanelbanhawy.editor.core.model.SelectionModel
+import com.aymanelbanhawy.editor.core.search.ExtractedTextBlock
+import com.aymanelbanhawy.editor.core.search.SearchHit
 import com.github.barteksc.pdfviewer.scroll.DefaultScrollHandle
 import com.github.barteksc.pdfviewer.util.FitPolicy
 
@@ -34,14 +36,16 @@ internal class AndroidPdfViewportAdapter(
             .load()
     }
 
-    override fun renderAnnotations(
+    override fun renderDocumentState(
         pages: List<PageModel>,
         formDocument: FormDocumentModel,
         selection: SelectionModel,
         activeTool: AnnotationTool,
+        searchHits: List<SearchHit>,
+        selectedTextBlocks: List<ExtractedTextBlock>,
         callbacks: PdfViewportCallbacks,
     ) {
-        hostView.renderAnnotations(pages, formDocument, selection, activeTool, callbacks)
+        hostView.renderDocumentState(pages, formDocument, selection, activeTool, searchHits, selectedTextBlocks, callbacks)
     }
 
     override fun recycle() {
@@ -49,3 +53,4 @@ internal class AndroidPdfViewportAdapter(
         hostView.pdfView.recycle()
     }
 }
+

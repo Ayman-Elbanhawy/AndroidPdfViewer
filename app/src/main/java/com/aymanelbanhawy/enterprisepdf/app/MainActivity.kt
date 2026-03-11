@@ -37,6 +37,8 @@ class MainActivity : ComponentActivity() {
                     val editImageLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? -> uri?.let(viewModel::addImageEdit) }
                     val replaceEditImageLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? -> uri?.let(viewModel::replaceSelectedImage) }
                     val profileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? -> uri?.let(viewModel::importFormProfile) }
+                    val scanImagesLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris: List<Uri> -> viewModel.importScanImages(uris) }
+
                     if (state.organizeVisible) {
                         OrganizePagesScreen(
                             state = state,
@@ -104,6 +106,57 @@ class MainActivity : ComponentActivity() {
                             onSelectedEditLineSpacingChanged = { viewModel.updateSelectedTextStyle(lineSpacingMultiplier = it) },
                             onSelectedEditOpacityChanged = viewModel::updateSelectedEditOpacity,
                             onSelectedEditRotationChanged = viewModel::updateSelectedEditRotation,
+                            onSearchQueryChanged = viewModel::updateSearchQuery,
+                            onSearch = viewModel::performSearch,
+                            onAssistantPromptChanged = viewModel::updateAssistantPrompt,
+                            onAskPdf = viewModel::askPdf,
+                            onSummarizeDocumentWithAi = viewModel::summarizeDocumentWithAi,
+                            onSummarizePageWithAi = viewModel::summarizeCurrentPageWithAi,
+                            onExtractActionItemsWithAi = viewModel::extractActionItemsWithAi,
+                            onExplainSelectionWithAi = viewModel::explainSelectionWithAi,
+                            onSemanticSearchWithAi = viewModel::runAiSemanticSearch,
+                            onAssistantPrivacyModeChanged = viewModel::updateAssistantPrivacyMode,
+                            onOpenAssistantCitation = viewModel::openAssistantCitation,
+                            onNextSearchHit = viewModel::nextSearchHit,
+                            onPreviousSearchHit = viewModel::previousSearchHit,
+                            onSelectSearchHit = viewModel::selectSearchHit,
+                            onUseRecentSearch = { query -> viewModel.updateSearchQuery(query); viewModel.performSearch(query) },
+                            onOpenOutlineItem = viewModel::openOutlineItem,
+                            onCopySelectedText = viewModel::copySelectedText,
+                            onShareSelectedText = viewModel::shareSelectedText,
+                            onShowScanImport = viewModel::showScanImportDialog,
+                            onDismissScanImport = viewModel::dismissScanImportDialog,
+                            onScanImportOptionsChanged = viewModel::updateScanImportOptions,
+                            onPickScanImages = { scanImagesLauncher.launch("image/*") },
+                            onCreateShareLink = viewModel::createShareLink,
+                            onCreateSnapshot = viewModel::createVersionSnapshot,
+                            onSyncNow = viewModel::syncCollaboration,
+                            onReviewFilterChanged = viewModel::updateReviewFilter,
+                            onAddReviewThread = viewModel::addReviewThread,
+                            onAddReviewReply = viewModel::addReviewReply,
+                            onToggleThreadResolved = viewModel::toggleThreadResolved,
+                            onConfigureAppLock = viewModel::configureAppLock,
+                            onUnlockWithPin = viewModel::unlockWithPin,
+                            onUnlockWithBiometric = viewModel::unlockWithBiometric,
+                            onLockNow = viewModel::lockNow,
+                            onUpdatePermissions = viewModel::updateDocumentPermissions,
+                            onUpdateTenantPolicy = viewModel::updateTenantPolicy,
+                            onUpdatePasswordProtection = viewModel::updatePasswordProtection,
+                            onUpdateWatermark = viewModel::updateWatermark,
+                            onUpdateMetadataScrub = viewModel::updateMetadataScrub,
+                            onInspectSecurity = viewModel::generateInspectionReport,
+                            onMarkRedaction = viewModel::markSelectedTextForRedaction,
+                            onPreviewRedactions = viewModel::setRedactionPreview,
+                            onApplyRedactions = viewModel::applyRedactions,
+                            onRemoveRedaction = viewModel::removeRedactionMark,
+                            onExportAuditTrail = viewModel::exportAuditTrail,
+                            onSignInPersonal = viewModel::signInPersonal,
+                            onSignInEnterprise = viewModel::signInEnterprise,
+                            onSignOutEnterprise = viewModel::signOutEnterprise,
+                            onSetEnterprisePlan = viewModel::setEnterprisePlan,
+                            onUpdateEnterprisePrivacy = viewModel::updateEnterprisePrivacy,
+                            onUpdateEnterprisePolicy = viewModel::updateEnterprisePolicy,
+                            onGenerateDiagnosticsBundle = viewModel::generateDiagnosticsBundle,
                             onRotatePage = viewModel::rotateCurrentPage,
                             onReorderPages = viewModel::showOrganize,
                             onUndo = viewModel::undo,
@@ -113,6 +166,7 @@ class MainActivity : ComponentActivity() {
                             onSaveAsEditable = viewModel::saveAsEditable,
                             onSaveAsFlattened = viewModel::saveAsFlattened,
                             onShareRequested = ::shareDocument,
+                            onShareTextRequested = ::shareText,
                         )
                     }
                 }
@@ -134,4 +188,16 @@ class MainActivity : ComponentActivity() {
         }
         startActivity(Intent.createChooser(sendIntent, event.document.documentRef.displayName))
     }
+
+    private fun shareText(event: EditorSessionEvent.ShareText) {
+        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, event.text)
+        }
+        startActivity(Intent.createChooser(sendIntent, event.title))
+    }
 }
+
+
+
+

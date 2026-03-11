@@ -8,4 +8,5 @@ data class SelectionModel(
     val selectedAnnotationIds: Set<String> = emptySet(),
     val selectedFormFieldName: String? = null,
     val selectedEditId: String? = null,
+    val selectedRedactionId: String? = null,
 )

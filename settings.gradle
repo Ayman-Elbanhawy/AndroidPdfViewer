@@ -20,3 +20,5 @@ include ':viewer-engine'
 project(':viewer-engine').projectDir = file('android-pdf-viewer')
 include ':editor-core'
 include ':app'
+include ':ai-assistant'
+
