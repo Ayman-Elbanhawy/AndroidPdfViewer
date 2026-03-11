@@ -44,6 +44,7 @@ import com.aymanelbanhawy.editor.core.security.WatermarkModel
 import com.aymanelbanhawy.editor.core.organize.SplitRequest
 import com.aymanelbanhawy.editor.core.write.PdfBoxWriteEngine
 import com.aymanelbanhawy.editor.core.write.PdfWriteEngine
+import com.aymanelbanhawy.editor.core.write.SaveStrategy
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPage
@@ -192,29 +193,48 @@ class DefaultDocumentRepository(
     override suspend fun save(document: DocumentModel, exportMode: AnnotationExportMode): DocumentModel {
         val ref = document.documentRef
         val workingFile = File(ref.workingCopyPath)
-        rebuildPdf(document, workingFile)
+        pdfWriteEngine.persist(document, workingFile, exportMode, SaveStrategy.IncrementalPreferred)
         applyFormData(document, workingFile, exportMode)
-        pdfWriteEngine.persist(document, workingFile, exportMode)
+        applySecurity(document.security, workingFile)
         val destination = when (ref.sourceType) {
-            DocumentSourceType.File -> File(ref.sourceKey).also { if (it.absolutePath != workingFile.absolutePath) workingFile.copyTo(it, overwrite = true) }
+            DocumentSourceType.File -> File(ref.sourceKey).also {
+                if (it.absolutePath != workingFile.absolutePath) {
+                    workingFile.copyTo(it, overwrite = true)
+                }
+            }
             else -> workingFile
         }
         annotationPersistenceGateway.persist(document, destination, exportMode)
         ocrSessionStore.copySidecar(document.documentRef, destination)
+        persistSecurity(destination.absolutePath, document.security)
         clearDraft(ref.sourceKey)
-        return document.copy(dirtyState = DirtyState(isDirty = false, saveMessage = "Saved (${exportMode.name.lowercase()})"), lastSavedAtEpochMillis = System.currentTimeMillis())
+        return document.copy(
+            dirtyState = DirtyState(isDirty = false, saveMessage = "Saved (${exportMode.name.lowercase()})"),
+            lastSavedAtEpochMillis = System.currentTimeMillis(),
+        )
     }
 
     override suspend fun saveAs(document: DocumentModel, destination: File, exportMode: AnnotationExportMode): DocumentModel {
         destination.parentFile?.mkdirs()
-        rebuildPdf(document, destination)
+        pdfWriteEngine.persist(document, destination, exportMode, SaveStrategy.SaveAs)
         applyFormData(document, destination, exportMode)
-        pdfWriteEngine.persist(document, destination, exportMode)
+        applySecurity(document.security, destination)
         annotationPersistenceGateway.persist(document, destination, exportMode)
         ocrSessionStore.copySidecar(document.documentRef, destination)
+        persistSecurity(destination.absolutePath, document.security)
         clearDraft(document.documentRef.sourceKey)
-        val updatedRef = document.documentRef.copy(uriString = Uri.fromFile(destination).toString(), displayName = destination.name, sourceType = DocumentSourceType.File, sourceKey = destination.absolutePath, workingCopyPath = destination.absolutePath)
-        return document.copy(documentRef = updatedRef, dirtyState = DirtyState(isDirty = false, saveMessage = "Saved as ${destination.name} (${exportMode.name.lowercase()})"), lastSavedAtEpochMillis = System.currentTimeMillis())
+        val updatedRef = document.documentRef.copy(
+            uriString = Uri.fromFile(destination).toString(),
+            displayName = destination.name,
+            sourceType = DocumentSourceType.File,
+            sourceKey = destination.absolutePath,
+            workingCopyPath = destination.absolutePath,
+        )
+        return document.copy(
+            documentRef = updatedRef,
+            dirtyState = DirtyState(isDirty = false, saveMessage = "Saved as ${destination.name} (${exportMode.name.lowercase()})"),
+            lastSavedAtEpochMillis = System.currentTimeMillis(),
+        )
     }
 
     override suspend fun split(document: DocumentModel, request: SplitRequest, outputDirectory: File): List<File> {
@@ -231,14 +251,19 @@ class DefaultDocumentRepository(
             }
             val extracted = document.copy(
                 pages = extractedPages,
-                formDocument = FormDocumentModel(document.formDocument.fields.filter { field -> group.contains(field.pageIndex) }.map { field -> field.copy(pageIndex = group.indexOf(field.pageIndex).coerceAtLeast(0)) }),
+                formDocument = FormDocumentModel(
+                    document.formDocument.fields
+                        .filter { field -> group.contains(field.pageIndex) }
+                        .map { field -> field.copy(pageIndex = group.indexOf(field.pageIndex).coerceAtLeast(0)) },
+                ),
             )
             val file = File(outputDirectory, "${document.documentRef.displayName.removeSuffix(".pdf")}_part_${index + 1}.pdf")
-            rebuildPdf(extracted, file)
+            pdfWriteEngine.persist(extracted, file, AnnotationExportMode.Editable, SaveStrategy.ExportCopy)
             applyFormData(extracted, file, AnnotationExportMode.Editable)
-            pdfWriteEngine.persist(extracted, file, AnnotationExportMode.Editable)
+            applySecurity(extracted.security, file)
             annotationPersistenceGateway.persist(extracted, file, AnnotationExportMode.Editable)
             ocrSessionStore.copySidecar(document.documentRef, file)
+            persistSecurity(file.absolutePath, extracted.security)
             file
         }
     }
@@ -580,6 +605,8 @@ private data class AnnotationSidecarPayload(
     val annotations: List<AnnotationModel>,
     val updatedAtEpochMillis: Long,
 )
+
+
 
 
 

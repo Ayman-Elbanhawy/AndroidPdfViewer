@@ -1,4 +1,4 @@
-﻿package com.aymanelbanhawy.editor.core
+package com.aymanelbanhawy.editor.core
 
 import android.content.Context
 import androidx.work.WorkManager
@@ -28,6 +28,8 @@ import com.aymanelbanhawy.editor.core.search.RoomSearchIndexStore
 import com.aymanelbanhawy.editor.core.security.AndroidSecureFileCipher
 import com.aymanelbanhawy.editor.core.security.DefaultSecurityRepository
 import com.aymanelbanhawy.editor.core.security.SecurityRepository
+import com.aymanelbanhawy.editor.core.write.PdfBoxWriteEngine
+import com.aymanelbanhawy.editor.core.write.RoomMutationInvalidationHooks
 import com.aymanelbanhawy.editor.core.session.DefaultEditorSession
 import com.aymanelbanhawy.editor.core.session.EditorSession
 import com.aymanelbanhawy.editor.core.work.CleanupExportsWorker
@@ -82,6 +84,10 @@ class EditorCoreContainer(
         draftDao = database.draftDao(),
         editHistoryMetadataDao = database.editHistoryMetadataDao(),
         documentSecurityDao = database.documentSecurityDao(),
+        pdfWriteEngine = PdfBoxWriteEngine(
+            context = appContext,
+            invalidationHooks = RoomMutationInvalidationHooks(appContext, database.searchIndexDao()),
+        ),
         secureFileCipher = AndroidSecureFileCipher(appContext),
         ocrSessionStore = ocrSessionStore,
         json = json,
@@ -124,3 +130,6 @@ class EditorCoreContainer(
 
     fun newSession(): EditorSession = DefaultEditorSession(documentRepository, autosaveScheduler)
 }
+
+
+
