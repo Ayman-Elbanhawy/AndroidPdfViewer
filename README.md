@@ -1,64 +1,114 @@
+# AndroidPdfViewer Enterprise Fork
 
-# Change of ownership and looking for contributors!
+This repository started as the AndroidPdfViewer project and now contains two connected product layers:
 
-The ownership of the project was recently changed and we are actively looking for contributors to bring the project back to track. Please [visit](https://github.com/DImuthuUpe/AndroidPdfViewer/issues/1186)
+- `viewer-engine` / `android-pdf-viewer`: the legacy Java PDF rendering engine, preserved as a reusable module
+- `editor-core`, `ai-assistant`, and `app`: a Kotlin, AndroidX, Material 3, and Compose enterprise PDF platform built around that renderer
 
-# Android PdfViewer
+The viewer is still available as a low-level widget, but this fork is now a modular PDF editing and workflow application with enterprise-grade platform hooks.
 
-__AndroidPdfViewer 1.x is available on [AndroidPdfViewerV1](https://github.com/barteksc/AndroidPdfViewerV1)
-repo, where can be developed independently. Version 1.x uses different engine for drawing document on canvas,
-so if you don't like 2.x version, try 1.x.__
+## Repository Structure
 
-Library for displaying PDF documents on Android, with `animations`, `gestures`, `zoom` and `double tap` support.
-It is based on [PdfiumAndroid](https://github.com/barteksc/PdfiumAndroid) for decoding PDF files. Works on API 11 (Android 3.0) and higher.
-Licensed under Apache License 2.0.
-## Enterprise Editor Workspace
+- `:viewer-engine`
+  - Existing AndroidPdfViewer rendering engine
+  - Java interop preserved
+  - Page coordinate mapping and overlay integration hooks
+- `:editor-core`
+  - Document sessions, persistence, Room, WorkManager, migration engine, diagnostics, OCR, security, collaboration, workflows, connectors, and write engine
+- `:ai-assistant`
+  - Provider runtime, secure provider settings, grounded citations, multi-document AI workspace, and policy-aware AI orchestration
+- `:app`
+  - Compose application shell, editor workspaces, diagnostics UI, settings/admin UI, connector UI, collaboration UI, and release configuration
 
-This fork now contains two layers:
+## What This Fork Now Includes
 
-* `android-pdf-viewer` / `viewer-engine`: the legacy rendering engine module, preserved and still usable as the low-level PDF viewport.
-* `editor-core`, `ai-assistant`, and `app`: the newer Kotlin/AndroidX/Compose-based editor platform built around the viewer engine.
+### Core editing and document workflows
+- Session-based document editing with `EditorSession`
+- Undo/redo and command-based mutations
+- Autosave, manual save, save-as, export copy, crash-safe restore
+- Direct PDF mutation write engine with rollback, checksums, save strategies, and sidecar migration compatibility
+- Text objects, image objects, annotation overlays, page organization, and structural page edits
 
-The repository is no longer just a widget sample. It now includes a modular PDF editor shell with:
+### Annotation and review
+- Highlight, underline, strikeout, ink, rectangle, ellipse, arrow, line, sticky note, and text box annotations
+- Selection, move, resize, recolor, duplicate, delete
+- Review comments, threads, replies, resolve/reopen, mentions, activity feed, share links, and review artifacts
+- Background sync queue and remote collaboration runtime with offline replay and conflict handling
 
-* document sessions, undo/redo, autosave, and crash-safe draft restore
-* annotation, page organize, forms, signing, search, OCR, review/collaboration, security, enterprise admin, AI assistant, and connector foundations
-* migration-safe persistence, startup repair, diagnostics, release engineering, and managed enterprise configuration hooks
+### Organize pages
+- Page thumbnails and caching
+- Drag/reorder support foundations
+- Rotate, delete, duplicate, extract, insert blank page, insert image page, merge, split, and batch operations
 
-## Build the Current App
+### Forms and signatures
+- AcroForm discovery and field modeling
+- Text, multiline, checkbox, radio, dropdown, date, and signature fields
+- Validation engine and form navigation
+- Signature capture, saved signatures, visible signature placement, certificate-backed signing foundation, and verification state tracking
 
-Open the repository in Android Studio and run the `app` module.
+### Security and protection
+- App lock, secure local encryption helpers, document protection settings
+- Saved-output password protection and permission flags
+- Watermark support on export
+- Metadata scrubber
+- Redaction mark, preview, and irreversible apply pipeline
+- Inspection reports and audit trail events
+- Tenant policy enforcement for export/share/print/copy restrictions
 
-Important modules:
+### OCR, search, and scan ingestion
+- ML Kit-based OCR pipeline wiring and searchable-session support
+- OCR settings, OCR queue state, diagnostics, and resumable job handling
+- Document search, bookmarks/outline, recent searches, text extraction, selection copy/share
+- Scan import workflow and searchable-PDF pipeline foundations
 
-* `:viewer-engine` maps to the existing `android-pdf-viewer` rendering code
-* `:editor-core` contains document/session/persistence/business logic
-* `:ai-assistant` contains the assistant runtime and provider integrations
-* `:app` contains the Compose UI shell and sample enterprise editor app
+### AI assistant
+- Ask PDF, summarize document, summarize page, explain selection, extract action items, semantic search
+- Page-grounded citations and region references
+- Redaction suggestions and form autofill suggestions
+- Multi-document AI workspace with pinned files, saved document sets, conversation history, and grounded cross-document answers
+- Real provider runtime for:
+  - local Ollama-compatible endpoints
+  - remote Ollama-compatible endpoints
+  - OpenAI API
+  - generic OpenAI-compatible APIs
+- Secure credential storage, provider settings UI, capability discovery, streaming, cancellation, retries, and policy gating
 
-Common commands:
+### Enterprise platform and deployment hooks
+- Personal mode and enterprise mode authentication/session architecture
+- Tenant bootstrap, policy sync, entitlement refresh, telemetry queueing, diagnostics bundles
+- Connector abstraction with production routing for local files, document-provider style flows, WebDAV, and S3-compatible storage
+- DLP-aware export and destination filtering
+- Managed app restriction support for tenant bootstrap, AI restrictions, connector restrictions, telemetry policy, watermarking, and metadata scrub enforcement
+- Release readiness validation, SBOM generation, license reporting, smoke test runner, and deployment docs
+
+### Quality, diagnostics, and upgrade safety
+- Runtime diagnostics snapshot with migration summary, cache state, queue depth, provider health, connector state, and recent failures
+- Startup repair for interrupted saves, interrupted OCR, interrupted sync, corrupt drafts, and corrupt session sidecars
+- Versioned migration engine with compatibility mode for older local sessions
+- Recovery, benchmark, smoke, and regression coverage
+- Accessibility pass on major Compose surfaces with improved semantics and touch targets
+
+## Build Variants
+
+The app module includes these product flavors:
+
+- `dev`
+- `qa`
+- `prod`
+- `enterpriseDemo`
+
+Recommended local build targets:
 
 ```powershell
 .\gradlew.bat :editor-core:test
+.\gradlew.bat :ai-assistant:test
 .\gradlew.bat :app:compileDevDebugKotlin
 .\gradlew.bat :app:assembleDevDebug
 ```
 
-Supported product flavors:
-
-* `dev`
-* `qa`
-* `prod`
-* `enterpriseDemo`
-
 ## Release and Compliance Gates
 
-Current release checks now fail builds when production paths still contain:
-
-* placeholder endpoints such as `example.invalid`
-* unresolved dependency licenses
-* fake, no-op, in-memory, example, or placeholder implementation types under `src/main`
-* debug or placeholder certificate pin values
+Production readiness checks are enforced with Gradle and CI.
 
 Useful commands:
 
@@ -68,279 +118,89 @@ Useful commands:
 powershell -ExecutionPolicy Bypass -File .\scripts\run-smoke-tests.ps1
 ```
 
-Managed app configuration supports tenant bootstrap, AI defaults and restrictions, connector restrictions, telemetry policy, watermark enforcement, metadata scrub enforcement, and external sharing controls. See `docs/deployment/managed-config.md`.
+`validateReleaseReadiness` fails if production code still contains:
+
+- placeholder endpoints such as `example.invalid`
+- unresolved license entries
+- fake, no-op, in-memory, example, or placeholder production implementations
+- placeholder or debug certificate pin configuration
 
 ## Upgrade and Migration Safety
 
-The current implementation includes a versioned migration/repair layer for existing local users. On startup the app now:
+The current implementation includes a versioned upgrade and repair path for existing users.
 
-* backs up local databases, drafts, and sidecar session files
-* upgrades legacy `.pageedits.json` sidecars into the current mutation-session format
-* preserves compatibility for older local drafts and editor sessions
-* resumes interrupted OCR and sync queue work safely
-* records migration and repair reports under the app files directory for support/export workflows
+On startup the app can:
 
-This is intended to let users upgrade without silently dropping local work.
+- back up local migration-relevant state
+- upgrade legacy `.pageedits.json` sessions into the newer mutation model
+- preserve compatibility for older drafts and sessions while upgrading them forward
+- resume interrupted OCR and sync work
+- quarantine corrupted drafts and sidecar session files
+- record migration reports for diagnostics and support export
 
-## What's new in 3.2.0-beta.1?
-* Merge PR #714 with optimized page load
-* Merge PR #776 with fix for max & min zoom level
-* Merge PR #722 with fix for showing right position when view size changed
-* Merge PR #703 with fix for too many threads
-* Merge PR #702 with fix for memory leak
-* Merge PR #689 with possibility to disable long click
-* Merge PR #628 with fix for hiding scroll handle
-* Merge PR #627 with `fitEachPage` option
-* Merge PR #638 and #406 with fixed NPE
-* Merge PR #780 with README fix
-* Update compile SDK and support library to 28
-* Update Gradle and Gradle Plugin
-* **16 KB Page Size Support**: Updated for Google Play compatibility requirement (November 1st, 2025)
+## Managed Enterprise Configuration
 
-## Changes in 3.0 API
-* Replaced `Contants.PRELOAD_COUNT` with `PRELOAD_OFFSET`
-* Removed `PDFView#fitToWidth()` (variant without arguments)
-* Removed `Configurator#invalidPageColor(int)` method as invalid pages are not rendered
-* Removed page size parameters from `OnRenderListener#onInitiallyRendered(int)` method, as document may have different page sizes
-* Removed `PDFView#setSwipeVertical()` method
+Managed restrictions now support:
 
-## Installation
+- tenant bootstrap and issuer configuration
+- AI provider defaults and restrictions
+- connector restrictions and destination filtering
+- telemetry policy
+- watermark enforcement
+- metadata scrub enforcement
+- external sharing controls
 
-Add to _build.gradle_:
+See [docs/deployment/managed-config.md](docs/deployment/managed-config.md).
 
-`implementation 'com.github.barteksc:android-pdf-viewer:3.2.0-beta.1'`
+## Legacy Viewer Usage
 
-or if you want to use more stable version:
- 
-`implementation 'com.github.barteksc:android-pdf-viewer:2.8.2'`
+The original AndroidPdfViewer engine is still available for apps that only need rendering.
 
-Library is available in jcenter repository, probably it'll be in Maven Central soon.
+### Include `PDFView` in a layout
 
-## 16 KB Page Size Support ✅ FIXED
-
-**✅ RESOLVED**: This library has been updated and **successfully fixed** to support 16 KB page sizes for Google Play compatibility. Starting November 1st, 2025, all new apps and updates targeting Android 15+ must support 16 KB page sizes.
-
-### ✅ What Was Fixed:
-- **Issue**: The `pdfium-android:1.9.0` dependency contained prebuilt native libraries that were not aligned for 16 KB page sizes
-- **Solution**: Implemented compressed shared libraries configuration and post-build realignment scripts
-- **Result**: APK now passes all 16 KB alignment checks and is Google Play compliant
-
-### Key Updates Made:
-- **AGP Version**: Using 8.13.0 (above required 8.5.1)
-- **NDK Version**: Updated to r28+ for 16 KB support
-- **Packaging**: Configured for compressed shared libraries to avoid alignment issues
-- **Native Libraries**: All native libraries are properly aligned for 16 KB page sizes
-- **Realignment Scripts**: Added automated tools to fix alignment issues
-
-### ✅ Verification:
-Use the provided scripts to verify 16 KB alignment:
-- **Linux/macOS**: `./check_16kb_alignment.sh your-app.apk`
-- **Windows**: `.\check_16kb_alignment.ps1 -ApkFile "your-app.apk"`
-- **Fix Alignment**: `.\realign_apk.bat "your-app.apk"`
-
-### 🎉 Google Play Compliance:
-Your app will now **pass Google Play's 16 KB compatibility checks** and work on devices with 16 KB page sizes.
-
-For more details, see [16KB_SUPPORT.md](16KB_SUPPORT.md).
-
-## ProGuard
-If you are using ProGuard, add following rule to proguard config file:
-
-```proguard
--keep class com.shockwave.**
-```
-
-## Include PDFView in your layout
-
-``` xml
+```xml
 <com.github.barteksc.pdfviewer.PDFView
-        android:id="@+id/pdfView"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"/>
+    android:id="@+id/pdfView"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent" />
 ```
 
-## Load a PDF file
+### Load a PDF
 
-All available options with default values:
-``` java
-pdfView.fromUri(Uri)
-or
-pdfView.fromFile(File)
-or
-pdfView.fromBytes(byte[])
-or
-pdfView.fromStream(InputStream) // stream is written to bytearray - native code cannot use Java Streams
-or
-pdfView.fromSource(DocumentSource)
-or
-pdfView.fromAsset(String)
-    .pages(0, 2, 1, 3, 3, 3) // all pages are displayed by default
-    .enableSwipe(true) // allows to block changing pages using swipe
+```java
+pdfView.fromUri(uri)
+    .defaultPage(0)
+    .enableSwipe(true)
     .swipeHorizontal(false)
     .enableDoubletap(true)
-    .defaultPage(0)
-    // allows to draw something on the current page, usually visible in the middle of the screen
-    .onDraw(onDrawListener)
-    // allows to draw something on all pages, separately for every page. Called only for visible pages
-    .onDrawAll(onDrawListener)
-    .onLoad(onLoadCompleteListener) // called after document is loaded and starts to be rendered
-    .onPageChange(onPageChangeListener)
-    .onPageScroll(onPageScrollListener)
-    .onError(onErrorListener)
-    .onPageError(onPageErrorListener)
-    .onRender(onRenderListener) // called after document is rendered for the first time
-    // called on single tap, return true if handled, false to toggle scroll handle visibility
-    .onTap(onTapListener)
-    .onLongPress(onLongPressListener)
-    .enableAnnotationRendering(false) // render annotations (such as comments, colors or forms)
-    .password(null)
-    .scrollHandle(null)
-    .enableAntialiasing(true) // improve rendering a little bit on low-res screens
-    // spacing between pages in dp. To define spacing color, set view background
+    .enableAnnotationRendering(false)
     .spacing(0)
-    .autoSpacing(false) // add dynamic spacing to fit each page on its own on the screen
-    .linkHandler(DefaultLinkHandler)
-    .pageFitPolicy(FitPolicy.WIDTH) // mode to fit pages in the view
-    .fitEachPage(false) // fit each page to the view, else smaller pages are scaled relative to largest page.
-    .pageSnap(false) // snap pages to screen boundaries
-    .pageFling(false) // make a fling change only a single page like ViewPager
-    .nightMode(false) // toggle night mode
+    .autoSpacing(false)
+    .pageSnap(false)
+    .pageFling(false)
+    .nightMode(false)
     .load();
 ```
 
-* `pages` is optional, it allows you to filter and order the pages of the PDF as you need
+Other supported sources:
 
-## Scroll handle
-
-Scroll handle is replacement for **ScrollBar** from 1.x branch.
-
-From version 2.1.0 putting **PDFView** in **RelativeLayout** to use **ScrollHandle** is not required, you can use any layout.
-
-To use scroll handle just register it using method `Configurator#scrollHandle()`.
-This method accepts implementations of **ScrollHandle** interface.
-
-There is default implementation shipped with AndroidPdfViewer, and you can use it with
-`.scrollHandle(new DefaultScrollHandle(this))`.
-**DefaultScrollHandle** is placed on the right (when scrolling vertically) or on the bottom (when scrolling horizontally).
-By using constructor with second argument (`new DefaultScrollHandle(this, true)`), handle can be placed left or top.
-
-You can also create custom scroll handles, just implement **ScrollHandle** interface.
-All methods are documented as Javadoc comments on interface [source](https://github.com/barteksc/AndroidPdfViewer/tree/master/android-pdf-viewer/src/main/java/com/github/barteksc/pdfviewer/scroll/ScrollHandle.java).
-
-## Document sources
-Version 2.3.0 introduced _document sources_, which are just providers for PDF documents.
-Every provider implements **DocumentSource** interface.
-Predefined providers are available in **com.github.barteksc.pdfviewer.source** package and can be used as
-samples for creating custom ones.
-
-Predefined providers can be used with shorthand methods:
-```
-pdfView.fromUri(Uri)
-pdfView.fromFile(File)
-pdfView.fromBytes(byte[])
-pdfView.fromStream(InputStream)
-pdfView.fromAsset(String)
-```
-Custom providers may be used with `pdfView.fromSource(DocumentSource)` method.
-
-## Links
-Version 3.0.0 introduced support for links in PDF documents. By default, **DefaultLinkHandler**
-is used and clicking on link that references page in same document causes jump to destination page
-and clicking on link that targets some URI causes opening it in default application.
-
-You can also create custom link handlers, just implement **LinkHandler** interface and set it using
-`Configurator#linkHandler(LinkHandler)` method. Take a look at [DefaultLinkHandler](https://github.com/barteksc/AndroidPdfViewer/tree/master/android-pdf-viewer/src/main/java/com/github/barteksc/pdfviewer/link/DefaultLinkHandler.java)
-source to implement custom behavior.
-
-## Pages fit policy
-Since version 3.0.0, library supports fitting pages into the screen in 3 modes:
-* WIDTH - width of widest page is equal to screen width
-* HEIGHT - height of highest page is equal to screen height
-* BOTH - based on widest and highest pages, every page is scaled to be fully visible on screen
-
-Apart from selected policy, every page is scaled to have size relative to other pages.
-
-Fit policy can be set using `Configurator#pageFitPolicy(FitPolicy)`. Default policy is **WIDTH**.
-
-## Additional options
-
-### Bitmap quality
-By default, generated bitmaps are _compressed_ with `RGB_565` format to reduce memory consumption.
-Rendering with `ARGB_8888` can be forced by using `pdfView.useBestQuality(true)` method.
-
-### Double tap zooming
-There are three zoom levels: min (default 1), mid (default 1.75) and max (default 3). On first double tap,
-view is zoomed to mid level, on second to max level, and on third returns to min level.
-If you are between mid and max levels, double tapping causes zooming to max and so on.
-
-Zoom levels can be changed using following methods:
-
-``` java
-void setMinZoom(float zoom);
-void setMidZoom(float zoom);
-void setMaxZoom(float zoom);
+```java
+pdfView.fromFile(file)
+pdfView.fromBytes(bytes)
+pdfView.fromStream(inputStream)
+pdfView.fromAsset("sample.pdf")
+pdfView.fromSource(documentSource)
 ```
 
-## Possible questions
-### Why resulting apk is so big?
-Android PdfViewer depends on PdfiumAndroid, which is set of native libraries (almost 16 MB) for many architectures.
-Apk must contain all this libraries to run on every device available on market.
-Fortunately, Google Play allows us to upload multiple apks, e.g. one per every architecture.
-There is good article on automatically splitting your application into multiple apks,
-available [here](http://ph0b.com/android-studio-gradle-and-ndk-integration/).
-Most important section is _Improving multiple APKs creation and versionCode handling with APK Splits_, but whole article is worth reading.
-You only need to do this in your application, no need for forking PdfiumAndroid or so.
+### Legacy viewer notes
+- Link handling is supported through `LinkHandler`
+- Scroll handle integration is still supported
+- Fit policies remain available: `WIDTH`, `HEIGHT`, `BOTH`
+- Rendering quality can still be adjusted with `useBestQuality(true)`
 
-### Why I cannot open PDF from URL?
-Downloading files is long running process which must be aware of Activity lifecycle, must support some configuration, 
-data cleanup and caching, so creating such module will probably end up as new library.
+## Lightweight PDF Edit API on `PDFView`
 
-### How can I show last opened page after configuration change?
-You have to store current page number and then set it with `pdfView.defaultPage(page)`, refer to sample app
-
-### How can I fit document to screen width (eg. on orientation change)?
-Use `FitPolicy.WIDTH` policy or add following snippet when you want to fit desired page in document with different page sizes:
-``` java
-Configurator.onRender(new OnRenderListener() {
-    @Override
-    public void onInitiallyRendered(int pages, float pageWidth, float pageHeight) {
-        pdfView.fitToWidth(pageIndex);
-    }
-});
-```
-
-### How can I scroll through single pages like a ViewPager?
-You can use a combination of the following settings to get scroll and fling behaviour similar to a ViewPager:
-``` java
-    .swipeHorizontal(true)
-    .pageSnap(true)
-    .autoSpacing(true)
-    .pageFling(true)
-```
-
-## One more thing
-If you have any suggestions on making this lib better, write me, create issue or write some code and send pull request.
-
-## License
-
-Created with the help of android-pdfview by [Joan Zapata](http://joanzapata.com/)
-```
-Copyright 2017 Bartosz Schiller
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-```
-## PDF editing and signatures
-Version 3.2 now includes a lightweight editing API for adding text edits and bitmap signatures directly on top of a loaded document, then exporting the result as a new PDF. The sample app exposes this flow with `Add note`, `Add signature`, and `Save PDF` actions.
+This fork also keeps the direct lightweight edit/export API that was added to the legacy viewer surface for compatibility-oriented usage.
 
 ```java
 PDFView pdfView = findViewById(R.id.pdfView);
@@ -369,36 +229,30 @@ File output = new File(getExternalFilesDir(null), "edited.pdf");
 pdfView.exportEditedPdf(output);
 ```
 
-Coordinates are normalized per page, so `RectF(0f, 0f, 1f, 1f)` maps to the full page. Export preserves the original input PDF and writes the edited result to a new file.
+Coordinates are normalized per page, so `RectF(0f, 0f, 1f, 1f)` maps to the whole page.
 
+## Current Library Notes
 
+- The historical AndroidPdfViewer 1.x branch remains separate at [AndroidPdfViewerV1](https://github.com/barteksc/AndroidPdfViewerV1)
+- This repository still builds on Pdfium-based rendering for the viewer engine
+- 16 KB page-size support and Play compatibility updates are included in this fork
 
-Supported product flavors:
+## License
 
-* dev
-* qa
-* prod
-* enterpriseDemo
+Created with the help of android-pdfview by [Joan Zapata](http://joanzapata.com/)
 
-## Release and Compliance Gates
+```text
+Copyright 2017 Bartosz Schiller
 
-Current release checks now fail builds when production paths still contain:
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
 
-* placeholder endpoints such as `example.invalid`
-* unresolved dependency licenses
-* fake, no-op, in-memory, example, or placeholder implementation types under `src/main`
-* debug or placeholder certificate pin values
+    http://www.apache.org/licenses/LICENSE-2.0
 
-Useful commands:
-
-```powershell
-.\gradlew.bat :app:validateReleaseReadiness
-.\gradlew.bat :app:generateSbom :app:generateLicenseReport
-powershell -ExecutionPolicy Bypass -File .\scripts\run-smoke-tests.ps1
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 ```
-
-Managed app configuration supports tenant bootstrap, AI defaults and restrictions, connector restrictions, telemetry policy, watermark enforcement, metadata scrub enforcement, and external sharing controls. See `docs/deployment/managed-config.md`.
-
-
-
-
