@@ -2,12 +2,6 @@ package com.aymanelbanhawy.editor.core.repository
 
 import android.content.Context
 import android.graphics.BitmapFactory
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.pdf.PdfRenderer
-import android.os.ParcelFileDescriptor
 import android.net.Uri
 import androidx.core.net.toUri
 import com.aymanelbanhawy.editor.core.data.DocumentSecurityDao
@@ -40,24 +34,29 @@ import com.aymanelbanhawy.editor.core.model.SelectionModel
 import com.aymanelbanhawy.editor.core.model.UndoRedoState
 import com.aymanelbanhawy.editor.core.ocr.OcrSessionStore
 import com.aymanelbanhawy.editor.core.organize.SplitPlanner
+import com.aymanelbanhawy.editor.core.organize.SplitRequest
+import com.aymanelbanhawy.editor.core.runtime.RuntimeDiagnosticsRepository
+import com.aymanelbanhawy.editor.core.runtime.RuntimeEventCategory
+import com.aymanelbanhawy.editor.core.runtime.RuntimeLogLevel
 import com.aymanelbanhawy.editor.core.security.AndroidSecureFileCipher
 import com.aymanelbanhawy.editor.core.security.MetadataScrubOptionsModel
 import com.aymanelbanhawy.editor.core.security.PasswordProtectionModel
 import com.aymanelbanhawy.editor.core.security.RedactionMarkModel
 import com.aymanelbanhawy.editor.core.security.RedactionStatus
+import com.aymanelbanhawy.editor.core.security.SecureFileCipher
 import com.aymanelbanhawy.editor.core.security.SecurityDocumentModel
 import com.aymanelbanhawy.editor.core.security.SecurityRepository
-import com.aymanelbanhawy.editor.core.security.SecureFileCipher
 import com.aymanelbanhawy.editor.core.security.WatermarkModel
-import com.aymanelbanhawy.editor.core.organize.SplitRequest
 import com.aymanelbanhawy.editor.core.write.PdfBoxWriteEngine
 import com.aymanelbanhawy.editor.core.write.PdfWriteEngine
 import com.aymanelbanhawy.editor.core.write.SaveStrategy
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
-import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
 import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
+import com.tom_roush.pdfbox.pdmodel.encryption.AccessPermission
+import com.tom_roush.pdfbox.pdmodel.encryption.StandardProtectionPolicy
+import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
 import com.tom_roush.pdfbox.pdmodel.graphics.image.LosslessFactory
 import com.tom_roush.pdfbox.pdmodel.interactive.form.PDAcroForm
 import com.tom_roush.pdfbox.pdmodel.interactive.form.PDCheckBox
@@ -66,11 +65,12 @@ import com.tom_roush.pdfbox.pdmodel.interactive.form.PDField
 import com.tom_roush.pdfbox.pdmodel.interactive.form.PDRadioButton
 import com.tom_roush.pdfbox.pdmodel.interactive.form.PDSignatureField
 import com.tom_roush.pdfbox.pdmodel.interactive.form.PDTextField
-import com.tom_roush.pdfbox.pdmodel.encryption.AccessPermission
-import com.tom_roush.pdfbox.pdmodel.encryption.StandardProtectionPolicy
-import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
 import java.io.File
+import java.io.InputStream
 import java.util.UUID
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -114,13 +114,17 @@ class DefaultDocumentRepository(
     private val ocrSessionStore: OcrSessionStore = OcrSessionStore(json),
     private val digitalSignatureService: DigitalSignatureService? = null,
     private val securityRepository: SecurityRepository? = null,
+    private val diagnosticsRepository: RuntimeDiagnosticsRepository? = null,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : DocumentRepository {
 
     init {
         PDFBoxResourceLoader.init(context)
     }
 
-    override suspend fun open(request: OpenDocumentRequest): DocumentModel {
+    override suspend fun open(request: OpenDocumentRequest): DocumentModel = withContext(ioDispatcher) {
+        repairStaleWorkingArtifacts()
+        val startedAt = System.currentTimeMillis()
         val sessionId = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
         val opened = when (request) {
@@ -131,7 +135,8 @@ class DefaultDocumentRepository(
             }
             is OpenDocumentRequest.FromUri -> {
                 val uri = request.uriString.toUri()
-                val workingFile = copyToWorkingFile(request.displayName, requireNotNull(context.contentResolver.openInputStream(uri)))
+                val input = requireNotNull(context.contentResolver.openInputStream(uri))
+                val workingFile = copyToWorkingFile(request.displayName, input)
                 buildDocument(sessionId, request.displayName, request.password, DocumentSourceType.Uri, request.uriString, workingFile)
             }
             is OpenDocumentRequest.FromAsset -> {
@@ -140,7 +145,7 @@ class DefaultDocumentRepository(
             }
             is OpenDocumentRequest.FromBytes -> {
                 val workingFile = createWorkingFile(request.displayName).apply { writeBytes(request.bytes) }
-                buildDocument(sessionId, request.displayName, request.password, DocumentSourceType.Memory, "memory://${sessionId}/${request.displayName}", workingFile)
+                buildDocument(sessionId, request.displayName, request.password, DocumentSourceType.Memory, "memory://$sessionId/${request.displayName}", workingFile)
             }
         }
         val annotations = annotationPersistenceGateway.load(opened.documentRef)
@@ -153,21 +158,21 @@ class DefaultDocumentRepository(
                 )
             },
             formDocument = detectForms(opened.documentRef.workingCopyPath),
+            security = loadSecurity(opened.documentRef.sourceKey),
         )
-        recentDocumentDao.upsert(
-            RecentDocumentEntity(document.documentRef.sourceKey, document.documentRef.displayName, document.documentRef.sourceType.name, document.documentRef.workingCopyPath, now),
-        )
-        return document
+        recentDocumentDao.upsert(RecentDocumentEntity(document.documentRef.sourceKey, document.documentRef.displayName, document.documentRef.sourceType.name, document.documentRef.workingCopyPath, now))
+        diagnosticsRepository?.recordDocumentOpen(document, System.currentTimeMillis() - startedAt)
+        document
     }
 
-    override suspend fun importPages(requests: List<OpenDocumentRequest>): List<PageModel> {
-        return requests.flatMap { request ->
+    override suspend fun importPages(requests: List<OpenDocumentRequest>): List<PageModel> = withContext(ioDispatcher) {
+        requests.flatMap { request ->
             val imported = open(request)
             imported.pages.map { page -> page.copy(sourceDocumentPath = imported.documentRef.workingCopyPath, sourcePageIndex = page.sourcePageIndex) }
         }
     }
 
-    override suspend fun persistDraft(payload: DraftPayload, autosave: Boolean) {
+    override suspend fun persistDraft(payload: DraftPayload, autosave: Boolean) = withContext(ioDispatcher) {
         val draftFile = stableDraftFile(payload.document.sessionId)
         draftFile.writeText(json.encodeToString(DraftPayload.serializer(), payload))
         val now = System.currentTimeMillis()
@@ -175,13 +180,19 @@ class DefaultDocumentRepository(
         editHistoryMetadataDao.upsert(EditHistoryMetadataEntity(payload.document.sessionId, payload.document.documentRef.sourceKey, payload.undoCount, payload.redoCount, payload.lastCommandName, now))
     }
 
-    override suspend fun restoreDraft(sourceKey: String): DraftRestoreResult? {
-        val draft = draftDao.getLatestForSource(sourceKey) ?: return null
+    override suspend fun restoreDraft(sourceKey: String): DraftRestoreResult? = withContext(ioDispatcher) {
+        val draft = draftDao.getLatestForSource(sourceKey) ?: return@withContext null
         val payloadFile = File(draft.draftFilePath)
-        if (!payloadFile.exists()) return null
-        val payload = json.decodeFromString(DraftPayload.serializer(), payloadFile.readText())
+        if (!payloadFile.exists()) return@withContext null
+        val payload = runCatching { json.decodeFromString(DraftPayload.serializer(), payloadFile.readText()) }.getOrElse {
+            payloadFile.copyTo(File(payloadFile.absolutePath + ".corrupt"), overwrite = true)
+            payloadFile.delete()
+            draftDao.deleteBySession(draft.sessionId)
+            diagnosticsRepository?.recordBreadcrumb(RuntimeEventCategory.Recovery, RuntimeLogLevel.Warn, "corrupted_draft", "Corrupted draft was quarantined.", mapOf("sourceKey" to sourceKey))
+            return@withContext null
+        }
         val metadata = editHistoryMetadataDao.getLatestForSource(sourceKey)
-        return DraftRestoreResult(
+        DraftRestoreResult(
             document = payload.document.copy(restoredFromDraft = true),
             selection = payload.selection,
             undoRedoState = UndoRedoState(
@@ -194,23 +205,23 @@ class DefaultDocumentRepository(
         )
     }
 
-    override suspend fun clearDraft(sourceKey: String) {
+    override suspend fun clearDraft(sourceKey: String) = withContext(ioDispatcher) {
         draftDao.getLatestForSource(sourceKey)?.let { File(it.draftFilePath).delete() }
         draftDao.deleteBySource(sourceKey)
         editHistoryMetadataDao.deleteBySource(sourceKey)
     }
 
-    override suspend fun save(document: DocumentModel, exportMode: AnnotationExportMode): DocumentModel {
+    override suspend fun save(document: DocumentModel, exportMode: AnnotationExportMode): DocumentModel = withContext(ioDispatcher) {
+        val startedAt = System.currentTimeMillis()
         val ref = document.documentRef
         val workingFile = File(ref.workingCopyPath)
-        pdfWriteEngine.persist(document, workingFile, exportMode, SaveStrategy.IncrementalPreferred)
+        val mutationResult = pdfWriteEngine.persist(document, workingFile, exportMode, SaveStrategy.IncrementalPreferred)
         applyFormData(document, workingFile, exportMode)
         applySecurity(document.security, workingFile)
+        verifyFileIntegrity(workingFile)
         val destination = when (ref.sourceType) {
             DocumentSourceType.File -> File(ref.sourceKey).also {
-                if (it.absolutePath != workingFile.absolutePath) {
-                    workingFile.copyTo(it, overwrite = true)
-                }
+                if (it.absolutePath != workingFile.absolutePath) workingFile.copyTo(it, overwrite = true)
             }
             else -> workingFile
         }
@@ -218,21 +229,25 @@ class DefaultDocumentRepository(
         ocrSessionStore.copySidecar(document.documentRef, destination)
         persistSecurity(destination.absolutePath, document.security)
         clearDraft(ref.sourceKey)
-        return document.copy(
+        diagnosticsRepository?.recordSave(document, System.currentTimeMillis() - startedAt, true, destination.length(), mutationResult.pdfSha256)
+        document.copy(
             dirtyState = DirtyState(isDirty = false, saveMessage = "Saved (${exportMode.name.lowercase()})"),
             lastSavedAtEpochMillis = System.currentTimeMillis(),
         )
     }
 
-    override suspend fun saveAs(document: DocumentModel, destination: File, exportMode: AnnotationExportMode): DocumentModel {
+    override suspend fun saveAs(document: DocumentModel, destination: File, exportMode: AnnotationExportMode): DocumentModel = withContext(ioDispatcher) {
+        val startedAt = System.currentTimeMillis()
         destination.parentFile?.mkdirs()
-        pdfWriteEngine.persist(document, destination, exportMode, SaveStrategy.SaveAs)
+        val mutationResult = pdfWriteEngine.persist(document, destination, exportMode, SaveStrategy.SaveAs)
         applyFormData(document, destination, exportMode)
         applySecurity(document.security, destination)
+        verifyFileIntegrity(destination)
         annotationPersistenceGateway.persist(document, destination, exportMode)
         ocrSessionStore.copySidecar(document.documentRef, destination)
         persistSecurity(destination.absolutePath, document.security)
         clearDraft(document.documentRef.sourceKey)
+        diagnosticsRepository?.recordSave(document, System.currentTimeMillis() - startedAt, true, destination.length(), mutationResult.pdfSha256)
         val updatedRef = document.documentRef.copy(
             uriString = Uri.fromFile(destination).toString(),
             displayName = destination.name,
@@ -240,17 +255,17 @@ class DefaultDocumentRepository(
             sourceKey = destination.absolutePath,
             workingCopyPath = destination.absolutePath,
         )
-        return document.copy(
+        document.copy(
             documentRef = updatedRef,
             dirtyState = DirtyState(isDirty = false, saveMessage = "Saved as ${destination.name} (${exportMode.name.lowercase()})"),
             lastSavedAtEpochMillis = System.currentTimeMillis(),
         )
     }
 
-    override suspend fun split(document: DocumentModel, request: SplitRequest, outputDirectory: File): List<File> {
+    override suspend fun split(document: DocumentModel, request: SplitRequest, outputDirectory: File): List<File> = withContext(ioDispatcher) {
         outputDirectory.mkdirs()
         val groups = SplitPlanner.plan(document, request)
-        return groups.mapIndexed { index, group ->
+        groups.mapIndexed { index, group ->
             val extractedPages = group.map { document.pages[it] }.mapIndexed { pageIndex, page ->
                 page.copy(
                     index = pageIndex,
@@ -262,8 +277,7 @@ class DefaultDocumentRepository(
             val extracted = document.copy(
                 pages = extractedPages,
                 formDocument = FormDocumentModel(
-                    document.formDocument.fields
-                        .filter { field -> group.contains(field.pageIndex) }
+                    document.formDocument.fields.filter { field -> group.contains(field.pageIndex) }
                         .map { field -> field.copy(pageIndex = group.indexOf(field.pageIndex).coerceAtLeast(0)) },
                 ),
             )
@@ -271,6 +285,7 @@ class DefaultDocumentRepository(
             pdfWriteEngine.persist(extracted, file, AnnotationExportMode.Editable, SaveStrategy.ExportCopy)
             applyFormData(extracted, file, AnnotationExportMode.Editable)
             applySecurity(extracted.security, file)
+            verifyFileIntegrity(file)
             annotationPersistenceGateway.persist(extracted, file, AnnotationExportMode.Editable)
             ocrSessionStore.copySidecar(document.documentRef, file)
             persistSecurity(file.absolutePath, extracted.security)
@@ -281,6 +296,27 @@ class DefaultDocumentRepository(
     override fun createAutosaveTempFile(sessionId: String): File {
         val dir = File(context.cacheDir, "autosave").apply { mkdirs() }
         return File(dir, "$sessionId.json")
+    }
+
+    private fun repairStaleWorkingArtifacts() {
+        listOf(File(context.filesDir, "working-documents"), File(context.cacheDir, "exports")).forEach { directory ->
+            directory.mkdirs()
+            directory.walkTopDown().filter { it.isFile }.forEach { file ->
+                when {
+                    file.name.endsWith(".saving.lock") -> file.delete()
+                    file.name.endsWith(".tmp") -> {
+                        val target = File(file.parentFile, file.name.removeSuffix(".tmp"))
+                        if (!target.exists() && file.length() > 0L) file.copyTo(target, overwrite = true)
+                        file.delete()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun verifyFileIntegrity(file: File) {
+        require(file.exists() && file.length() > 0L) { "Saved file is empty." }
+        PDDocument.load(file).use { require(it.numberOfPages > 0) { "Saved file is unreadable." } }
     }
 
     private fun buildDocument(sessionId: String, displayName: String, password: String?, sourceType: DocumentSourceType, sourceKey: String, workingFile: File): DocumentModel {
@@ -312,37 +348,13 @@ class DefaultDocumentRepository(
             val name = field.fullyQualifiedName ?: field.partialName ?: "field_$pageIndex"
             val label = field.partialName ?: name
             when (field) {
-                is PDTextField -> FormFieldModel(
-                    name = name,
-                    label = label,
-                    pageIndex = pageIndex,
-                    bounds = normalized,
-                    type = if (field.isMultiline) FormFieldType.MultilineText else if (name.contains("date", true)) FormFieldType.Date else FormFieldType.Text,
-                    required = field.isRequired,
-                    value = FormFieldValue.Text(field.value ?: ""),
-                    placeholder = label,
-                    maxLength = field.maxLen.takeIf { it > 0 },
-                    readOnly = field.isReadOnly,
-                )
+                is PDTextField -> FormFieldModel(name = name, label = label, pageIndex = pageIndex, bounds = normalized, type = if (field.isMultiline) FormFieldType.MultilineText else if (name.contains("date", true)) FormFieldType.Date else FormFieldType.Text, required = field.isRequired, value = FormFieldValue.Text(field.value ?: ""), placeholder = label, maxLength = field.maxLen.takeIf { it > 0 }, readOnly = field.isReadOnly)
                 is PDCheckBox -> FormFieldModel(name, label, pageIndex, normalized, FormFieldType.Checkbox, field.isRequired, value = FormFieldValue.BooleanValue(field.isChecked), readOnly = field.isReadOnly, exportValue = field.onValue)
                 is PDRadioButton -> FormFieldModel(name, label, pageIndex, normalized, FormFieldType.RadioGroup, field.isRequired, options = field.exportValues.map { FormFieldOption(it, it) }, value = FormFieldValue.Choice(field.value ?: ""), readOnly = field.isReadOnly)
                 is PDChoice -> FormFieldModel(name, label, pageIndex, normalized, FormFieldType.Dropdown, field.isRequired, options = field.options.map { FormFieldOption(it, it) }, value = FormFieldValue.Choice(field.value.firstOrNull() ?: ""), readOnly = field.isReadOnly)
                 is PDSignatureField -> {
                     val signature = field.signature
-                    FormFieldModel(
-                        name = name,
-                        label = label,
-                        pageIndex = pageIndex,
-                        bounds = normalized,
-                        type = FormFieldType.Signature,
-                        value = FormFieldValue.SignatureValue(
-                            signerName = signature?.name ?: "",
-                            signedAtEpochMillis = signature?.signDate?.timeInMillis ?: 0L,
-                            status = if (signature != null) SignatureVerificationStatus.Verified else SignatureVerificationStatus.Unsigned,
-                        ),
-                        signatureStatus = if (signature != null) SignatureVerificationStatus.Verified else SignatureVerificationStatus.Unsigned,
-                        readOnly = field.isReadOnly,
-                    )
+                    FormFieldModel(name = name, label = label, pageIndex = pageIndex, bounds = normalized, type = FormFieldType.Signature, value = FormFieldValue.SignatureValue(signerName = signature?.name ?: "", signedAtEpochMillis = signature?.signDate?.timeInMillis ?: 0L, status = if (signature != null) SignatureVerificationStatus.Verified else SignatureVerificationStatus.Unsigned), signatureStatus = if (signature != null) SignatureVerificationStatus.Verified else SignatureVerificationStatus.Unsigned, readOnly = field.isReadOnly)
                 }
                 else -> null
             }
@@ -364,32 +376,16 @@ class DefaultDocumentRepository(
             document.formDocument.fields.forEach { fieldModel ->
                 val field = acroForm.getField(fieldModel.name) ?: return@forEach
                 when (val value = fieldModel.value) {
-                    is FormFieldValue.Text -> {
-                        if (field is PDTextField) {
-                            runCatching { field.setValue(value.text) }
-                        }
+                    is FormFieldValue.Text -> if (field is PDTextField) runCatching { field.setValue(value.text) }
+                    is FormFieldValue.BooleanValue -> runCatching { if (field is PDCheckBox) if (value.checked) field.check() else field.unCheck() }
+                    is FormFieldValue.Choice -> when (field) {
+                        is PDRadioButton -> runCatching { field.setValue(value.selected) }
+                        is PDChoice -> runCatching { field.setValue(value.selected) }
                     }
-                    is FormFieldValue.BooleanValue -> runCatching {
-                        if (field is PDCheckBox) {
-                            if (value.checked) field.check() else field.unCheck()
-                        }
-                    }
-                    is FormFieldValue.Choice -> {
-                        when (field) {
-                            is PDRadioButton -> runCatching { field.setValue(value.selected) }
-                            is PDChoice -> runCatching { field.setValue(value.selected) }
-                        }
-                    }
-                    is FormFieldValue.SignatureValue -> {
-                        if (!value.imagePath.isNullOrBlank()) {
-                            placeSignatureAppearance(pdDocument, fieldModel, value.imagePath)
-                        }
-                    }
+                    is FormFieldValue.SignatureValue -> if (!value.imagePath.isNullOrBlank()) placeSignatureAppearance(pdDocument, fieldModel, value.imagePath)
                 }
             }
-            if (exportMode == AnnotationExportMode.Flatten) {
-                runCatching { acroForm.flatten() }
-            }
+            if (exportMode == AnnotationExportMode.Flatten) runCatching { acroForm.flatten() }
             pdDocument.save(destination)
         }
     }
@@ -397,12 +393,7 @@ class DefaultDocumentRepository(
     private fun placeSignatureAppearance(document: PDDocument, fieldModel: FormFieldModel, imagePath: String) {
         val page = document.getPage(fieldModel.pageIndex.coerceIn(0, document.numberOfPages - 1))
         val mediaBox = page.mediaBox
-        val rect = PDRectangle(
-            fieldModel.bounds.left * mediaBox.width,
-            mediaBox.height - (fieldModel.bounds.bottom * mediaBox.height),
-            fieldModel.bounds.width * mediaBox.width,
-            fieldModel.bounds.height * mediaBox.height,
-        )
+        val rect = PDRectangle(fieldModel.bounds.left * mediaBox.width, mediaBox.height - (fieldModel.bounds.bottom * mediaBox.height), fieldModel.bounds.width * mediaBox.width, fieldModel.bounds.height * mediaBox.height)
         val bitmap = BitmapFactory.decodeFile(imagePath) ?: return
         PDPageContentStream(document, page, PDPageContentStream.AppendMode.APPEND, true, true).use { contentStream ->
             val image = LosslessFactory.createFromImage(document, bitmap)
@@ -410,76 +401,22 @@ class DefaultDocumentRepository(
         }
     }
 
-    private fun rebuildPdf(document: DocumentModel, destination: File) {
-        destination.parentFile?.mkdirs()
-        PDDocument().use { output ->
-            val sourceDocuments = mutableMapOf<String, PDDocument>()
-            try {
-                document.pages.forEach { page ->
-                    when (page.contentType) {
-                        PageContentType.Pdf -> {
-                            val sourcePath = page.sourceDocumentPath.ifBlank { document.documentRef.workingCopyPath }
-                            val sourceDocument = sourceDocuments.getOrPut(sourcePath) { PDDocument.load(File(sourcePath)) }
-                            val imported = output.importPage(sourceDocument.getPage(page.sourcePageIndex.coerceAtLeast(0)))
-                            imported.rotation = page.rotationDegrees
-                        }
-                        PageContentType.Blank -> {
-                            val blankPage = PDPage(PDRectangle(page.widthPoints, page.heightPoints))
-                            blankPage.rotation = page.rotationDegrees
-                            output.addPage(blankPage)
-                        }
-                        PageContentType.Image -> {
-                            val mediaBox = PDRectangle(page.widthPoints, page.heightPoints)
-                            val imagePage = PDPage(mediaBox)
-                            imagePage.rotation = page.rotationDegrees
-                            output.addPage(imagePage)
-                            val imagePath = page.insertedImagePath ?: return@forEach
-                            val bitmap = BitmapFactory.decodeFile(imagePath) ?: return@forEach
-                            PDPageContentStream(output, imagePage).use { contentStream ->
-                                val image = LosslessFactory.createFromImage(output, bitmap)
-                                contentStream.drawImage(image, 0f, 0f, mediaBox.width, mediaBox.height)
-                            }
-                        }
-                    }
-                }
-                output.save(destination)
-            } finally {
-                sourceDocuments.values.forEach { it.close() }
-            }
-        }
-    }
-
     private suspend fun loadSecurity(documentKey: String): SecurityDocumentModel {
-        return documentSecurityDao.get(documentKey)?.let { json.decodeFromString(SecurityDocumentModel.serializer(), it.payloadJson) }
-            ?: SecurityDocumentModel()
+        return documentSecurityDao.get(documentKey)?.let { json.decodeFromString(SecurityDocumentModel.serializer(), it.payloadJson) } ?: SecurityDocumentModel()
     }
 
     private suspend fun persistSecurity(documentKey: String, security: SecurityDocumentModel) {
-        documentSecurityDao.upsert(
-            DocumentSecurityEntity(
-                documentKey = documentKey,
-                payloadJson = json.encodeToString(SecurityDocumentModel.serializer(), security),
-                updatedAtEpochMillis = System.currentTimeMillis(),
-            ),
-        )
+        documentSecurityDao.upsert(DocumentSecurityEntity(documentKey = documentKey, payloadJson = json.encodeToString(SecurityDocumentModel.serializer(), security), updatedAtEpochMillis = System.currentTimeMillis()))
     }
 
     private fun applySecurity(security: SecurityDocumentModel, destination: File) {
         if (!destination.exists()) return
         PDDocument.load(destination).use { document ->
-            if (security.metadataScrub.enabled) {
-                scrubMetadata(document, security.metadataScrub)
-            }
-            if (security.watermark.enabled && security.watermark.text.isNotBlank()) {
-                applyWatermark(document, security.watermark)
-            }
+            if (security.metadataScrub.enabled) scrubMetadata(document, security.metadataScrub)
+            if (security.watermark.enabled && security.watermark.text.isNotBlank()) applyWatermark(document, security.watermark)
             val redactions = security.redactionWorkflow.marks.filter { it.status == RedactionStatus.Applied }
-            if (redactions.isNotEmpty()) {
-                applyRedactions(document, redactions)
-            }
-            if (security.passwordProtection.enabled && (security.passwordProtection.ownerPassword.isNotBlank() || security.passwordProtection.userPassword.isNotBlank())) {
-                applyPasswordProtection(document, security.passwordProtection, security.permissions)
-            }
+            if (redactions.isNotEmpty()) applyRedactions(document, redactions)
+            if (security.passwordProtection.enabled && (security.passwordProtection.ownerPassword.isNotBlank() || security.passwordProtection.userPassword.isNotBlank())) applyPasswordProtection(document, security.passwordProtection, security.permissions)
             document.save(destination)
         }
     }
@@ -506,11 +443,7 @@ class DefaultDocumentRepository(
             setCanModify(permissions.allowExport)
             setCanModifyAnnotations(true)
         }
-        val policy = StandardProtectionPolicy(
-            protection.ownerPassword.ifBlank { protection.userPassword.ifBlank { UUID.randomUUID().toString() } },
-            protection.userPassword,
-            accessPermission,
-        )
+        val policy = StandardProtectionPolicy(protection.ownerPassword.ifBlank { protection.userPassword.ifBlank { UUID.randomUUID().toString() } }, protection.userPassword, accessPermission)
         policy.encryptionKeyLength = 256
         document.protect(policy)
     }
@@ -527,13 +460,7 @@ class DefaultDocumentRepository(
                 content.setNonStrokingColor(red, green, blue)
                 content.beginText()
                 content.setFont(PDType1Font.HELVETICA_BOLD, watermark.fontSize)
-                content.setTextMatrix(
-                    com.tom_roush.pdfbox.util.Matrix.getRotateInstance(
-                        Math.toRadians(watermark.rotationDegrees.toDouble()),
-                        mediaBox.width / 4f,
-                        mediaBox.height / 2f,
-                    ),
-                )
+                content.setTextMatrix(com.tom_roush.pdfbox.util.Matrix.getRotateInstance(Math.toRadians(watermark.rotationDegrees.toDouble()), mediaBox.width / 4f, mediaBox.height / 2f))
                 content.showText(watermark.text)
                 content.endText()
             }
@@ -547,12 +474,7 @@ class DefaultDocumentRepository(
             val mediaBox = page.mediaBox
             PDPageContentStream(document, page, PDPageContentStream.AppendMode.APPEND, true, true).use { content ->
                 pageMarks.forEach { mark ->
-                    val rect = PDRectangle(
-                        mark.bounds.left * mediaBox.width,
-                        mediaBox.height - (mark.bounds.bottom * mediaBox.height),
-                        mark.bounds.width * mediaBox.width,
-                        mark.bounds.height * mediaBox.height,
-                    )
+                    val rect = PDRectangle(mark.bounds.left * mediaBox.width, mediaBox.height - (mark.bounds.bottom * mediaBox.height), mark.bounds.width * mediaBox.width, mark.bounds.height * mediaBox.height)
                     content.setNonStrokingColor(0f, 0f, 0f)
                     content.addRect(rect.lowerLeftX, rect.lowerLeftY - rect.height, rect.width, rect.height)
                     content.fill()
@@ -560,13 +482,14 @@ class DefaultDocumentRepository(
             }
         }
     }
+
     private fun createWorkingFile(displayName: String): File {
         val dir = File(context.filesDir, "working-documents").apply { mkdirs() }
         val sanitized = displayName.ifBlank { "document.pdf" }
         return File(dir, "${UUID.randomUUID()}_$sanitized")
     }
 
-    private fun copyToWorkingFile(displayName: String, inputStream: java.io.InputStream): File {
+    private fun copyToWorkingFile(displayName: String, inputStream: InputStream): File {
         val file = createWorkingFile(displayName)
         inputStream.use { input -> file.outputStream().use { input.copyTo(it) } }
         return file
@@ -615,20 +538,3 @@ private data class AnnotationSidecarPayload(
     val annotations: List<AnnotationModel>,
     val updatedAtEpochMillis: Long,
 )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

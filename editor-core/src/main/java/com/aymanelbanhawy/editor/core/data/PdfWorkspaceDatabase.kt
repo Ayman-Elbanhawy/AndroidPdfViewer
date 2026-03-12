@@ -29,8 +29,9 @@ import androidx.room.RoomDatabase
         ConnectorAccountEntity::class,
         RemoteDocumentMetadataEntity::class,
         ConnectorTransferJobEntity::class,
+        RuntimeBreadcrumbEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = false,
 )
 abstract class PdfWorkspaceDatabase : RoomDatabase() {
@@ -58,4 +59,5 @@ abstract class PdfWorkspaceDatabase : RoomDatabase() {
     abstract fun connectorAccountDao(): ConnectorAccountDao
     abstract fun remoteDocumentMetadataDao(): RemoteDocumentMetadataDao
     abstract fun connectorTransferJobDao(): ConnectorTransferJobDao
+    abstract fun runtimeBreadcrumbDao(): RuntimeBreadcrumbDao
 }

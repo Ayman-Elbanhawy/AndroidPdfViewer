@@ -124,6 +124,8 @@ private class FakeSearchIndexDao : SearchIndexDao {
         entities.forEach { entity -> this.entities[entity.documentKey to entity.pageIndex] = entity }
     }
 
+    override suspend fun documentKeys(): List<String> = entities.values.map { it.documentKey }.distinct()
+
     override suspend fun indexForDocument(documentKey: String): List<SearchIndexEntity> {
         return entities.values.filter { it.documentKey == documentKey }.sortedBy { it.pageIndex }
     }
@@ -154,3 +156,5 @@ private class FakeRecentSearchDao : RecentSearchDao {
         entities.removeAll { it.documentKey == documentKey && it.id !in keep }
     }
 }
+
+

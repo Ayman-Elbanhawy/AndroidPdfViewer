@@ -3,7 +3,6 @@ package com.aymanelbanhawy.editor.core.search
 import com.aymanelbanhawy.editor.core.model.NormalizedRect
 import com.aymanelbanhawy.editor.core.model.PdfDocumentRef
 import com.tom_roush.pdfbox.pdmodel.PDDocument
-import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.destination.PDPageDestination
 import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDDocumentOutline
 import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineItem
 import com.tom_roush.pdfbox.text.PDFTextStripper
@@ -11,22 +10,43 @@ import com.tom_roush.pdfbox.text.TextPosition
 import java.io.File
 import kotlin.math.max
 import kotlin.math.min
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 
 class PdfBoxTextExtractionService : TextExtractionService {
     override suspend fun extract(documentRef: PdfDocumentRef): List<IndexedPageContent> {
+        val pages = mutableListOf<IndexedPageContent>()
+        extractInChunks(documentRef) { pages += it }
+        return pages
+    }
+
+    suspend fun extractInChunks(
+        documentRef: PdfDocumentRef,
+        chunkSize: Int = 16,
+        onChunk: suspend (List<IndexedPageContent>) -> Unit,
+    ) {
         val file = File(documentRef.workingCopyPath)
-        if (!file.exists()) return emptyList()
-        return PDDocument.load(file).use { document ->
-            document.pages.mapIndexed { pageIndex, page ->
-                val stripper = PageStripper(pageIndex, page.mediaBox.width, page.mediaBox.height)
-                stripper.startPage = pageIndex + 1
-                stripper.endPage = pageIndex + 1
-                stripper.getText(document)
-                IndexedPageContent(
-                    pageIndex = pageIndex,
-                    pageText = stripper.pageText.toString().trim(),
-                    blocks = stripper.blocks,
-                )
+        if (!file.exists()) return
+        PDDocument.load(file).use { document ->
+            val safeChunkSize = chunkSize.coerceIn(4, 32)
+            var startIndex = 0
+            while (startIndex < document.numberOfPages) {
+                coroutineContext.ensureActive()
+                val endExclusive = min(document.numberOfPages, startIndex + safeChunkSize)
+                val chunk = (startIndex until endExclusive).map { pageIndex ->
+                    val page = document.getPage(pageIndex)
+                    val stripper = PageStripper(pageIndex, page.mediaBox.width, page.mediaBox.height)
+                    stripper.startPage = pageIndex + 1
+                    stripper.endPage = pageIndex + 1
+                    stripper.getText(document)
+                    IndexedPageContent(
+                        pageIndex = pageIndex,
+                        pageText = stripper.pageText.toString().trim(),
+                        blocks = stripper.blocks,
+                    )
+                }
+                onChunk(chunk)
+                startIndex = endExclusive
             }
         }
     }

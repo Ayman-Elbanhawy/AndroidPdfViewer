@@ -3,6 +3,9 @@ package com.aymanelbanhawy.editor.core.search
 import com.aymanelbanhawy.editor.core.model.DocumentModel
 import com.aymanelbanhawy.editor.core.model.NormalizedRect
 import com.aymanelbanhawy.editor.core.ocr.OcrSessionStore
+import com.aymanelbanhawy.editor.core.runtime.RuntimeDiagnosticsRepository
+import com.aymanelbanhawy.editor.core.runtime.RuntimeEventCategory
+import com.aymanelbanhawy.editor.core.runtime.RuntimeLogLevel
 import kotlin.math.max
 import kotlin.math.min
 
@@ -10,6 +13,7 @@ class DefaultDocumentSearchService(
     private val store: RoomSearchIndexStore,
     private val extractionService: TextExtractionService,
     private val ocrSessionStore: OcrSessionStore,
+    private val diagnosticsRepository: RuntimeDiagnosticsRepository? = null,
 ) : DocumentSearchService {
 
     override suspend fun ensureIndex(document: DocumentModel, forceRefresh: Boolean): List<IndexedPageContent> {
@@ -18,9 +22,24 @@ class DefaultDocumentSearchService(
             applyPersistedOcr(document)
             return store.indexedPages(document.documentRef.sourceKey)
         }
-        val extracted = extractionService.extract(document.documentRef)
-        store.saveEmbeddedIndex(document.documentRef.sourceKey, extracted)
+        val startedAt = System.currentTimeMillis()
+        store.clearDocument(document.documentRef.sourceKey)
+        when (val extractor = extractionService) {
+            is PdfBoxTextExtractionService -> {
+                extractor.extractInChunks(document.documentRef, chunkSize = recommendedChunkSize(document.pageCount)) { chunk ->
+                    store.saveEmbeddedIndexChunk(document.documentRef.sourceKey, chunk)
+                }
+            }
+            else -> store.saveEmbeddedIndex(document.documentRef.sourceKey, extractor.extract(document.documentRef))
+        }
         applyPersistedOcr(document)
+        diagnosticsRepository?.recordBreadcrumb(
+            category = RuntimeEventCategory.Indexing,
+            level = RuntimeLogLevel.Info,
+            eventName = "search_index_ready",
+            message = "Indexed ${document.pageCount} pages in ${System.currentTimeMillis() - startedAt}ms.",
+            metadata = mapOf("document" to document.documentRef.displayName),
+        )
         return store.indexedPages(document.documentRef.sourceKey)
     }
 
@@ -100,5 +119,14 @@ class DefaultDocumentSearchService(
 
     private fun intersects(left: NormalizedRect, right: NormalizedRect): Boolean {
         return left.left < right.right && left.right > right.left && left.top < right.bottom && left.bottom > right.top
+    }
+
+    internal fun recommendedChunkSize(pageCount: Int): Int {
+        return when {
+            pageCount >= 600 -> 6
+            pageCount >= 250 -> 10
+            pageCount >= 100 -> 14
+            else -> 20
+        }
     }
 }

@@ -1,4 +1,4 @@
-﻿package com.aymanelbanhawy.editor.core.data
+package com.aymanelbanhawy.editor.core.data
 
 import androidx.room.Dao
 import androidx.room.Insert
@@ -9,6 +9,9 @@ import androidx.room.Query
 interface SyncQueueDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: SyncQueueEntity)
+
+    @Query("SELECT * FROM sync_queue ORDER BY updatedAtEpochMillis ASC")
+    suspend fun all(): List<SyncQueueEntity>
 
     @Query("SELECT * FROM sync_queue WHERE documentKey = :documentKey ORDER BY createdAtEpochMillis ASC")
     suspend fun forDocument(documentKey: String): List<SyncQueueEntity>

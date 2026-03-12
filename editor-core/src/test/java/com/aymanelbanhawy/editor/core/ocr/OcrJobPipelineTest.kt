@@ -9,9 +9,7 @@ import com.aymanelbanhawy.editor.core.data.OcrJobEntity
 import com.aymanelbanhawy.editor.core.data.OcrSettingsDao
 import com.aymanelbanhawy.editor.core.data.OcrSettingsEntity
 import com.aymanelbanhawy.editor.core.model.DocumentModel
-import com.aymanelbanhawy.editor.core.model.DocumentSourceType
 import com.aymanelbanhawy.editor.core.model.NormalizedRect
-import com.aymanelbanhawy.editor.core.model.PageModel
 import com.aymanelbanhawy.editor.core.model.PdfDocumentRef
 import com.aymanelbanhawy.editor.core.search.DocumentSearchService
 import com.aymanelbanhawy.editor.core.search.ExtractedTextBlock
@@ -25,9 +23,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import org.junit.Before
+import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
-import org.junit.Test
 import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
@@ -149,10 +147,19 @@ private class FakeOcrJobDao : OcrJobDao {
     }
 
     override suspend fun job(id: String): OcrJobEntity? = entities[id]
-    override suspend fun jobsForDocument(documentKey: String): List<OcrJobEntity> = entities.values.filter { it.documentKey == documentKey }
+
+    override suspend fun all(): List<OcrJobEntity> = entities.values.toList()
+
+    override suspend fun jobsForDocument(documentKey: String): List<OcrJobEntity> =
+        entities.values.filter { it.documentKey == documentKey }
+
     override fun observeJobsForDocument(documentKey: String): Flow<List<OcrJobEntity>> = flow
-    override suspend fun jobForPage(documentKey: String, pageIndex: Int): OcrJobEntity? = entities.values.firstOrNull { it.documentKey == documentKey && it.pageIndex == pageIndex }
-    override suspend fun pendingOrResumable(documentKey: String, staleBeforeEpochMillis: Long, limit: Int): List<OcrJobEntity> = entities.values.filter { it.documentKey == documentKey }.take(limit)
+
+    override suspend fun jobForPage(documentKey: String, pageIndex: Int): OcrJobEntity? =
+        entities.values.firstOrNull { it.documentKey == documentKey && it.pageIndex == pageIndex }
+
+    override suspend fun pendingOrResumable(documentKey: String, staleBeforeEpochMillis: Long, limit: Int): List<OcrJobEntity> =
+        entities.values.filter { it.documentKey == documentKey }.take(limit)
 
     private fun emit() {
         flow.value = entities.values.sortedBy { it.pageIndex }
@@ -161,7 +168,11 @@ private class FakeOcrJobDao : OcrJobDao {
 
 private class FakeOcrSettingsDao : OcrSettingsDao {
     private var entity: OcrSettingsEntity? = null
-    override suspend fun upsert(entity: OcrSettingsEntity) { this.entity = entity }
+
+    override suspend fun upsert(entity: OcrSettingsEntity) {
+        this.entity = entity
+    }
+
     override suspend fun get(id: String): OcrSettingsEntity? = entity
 }
 
@@ -173,7 +184,8 @@ private class RecordingSearchService : DocumentSearchService {
     override suspend fun recentSearches(documentKey: String, limit: Int): List<String> = emptyList()
     override suspend fun outline(documentRef: PdfDocumentRef): List<OutlineItem> = emptyList()
     override suspend fun selectionForBounds(document: DocumentModel, pageIndex: Int, bounds: NormalizedRect): TextSelectionPayload? = null
-    override suspend fun attachOcrResult(documentKey: String, pageIndex: Int, pageText: String, blocks: List<ExtractedTextBlock>) { lastPageText = pageText }
+
+    override suspend fun attachOcrResult(documentKey: String, pageIndex: Int, pageText: String, blocks: List<ExtractedTextBlock>) {
+        lastPageText = pageText
+    }
 }
-
-

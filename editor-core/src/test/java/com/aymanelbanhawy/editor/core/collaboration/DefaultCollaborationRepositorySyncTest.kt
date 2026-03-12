@@ -319,10 +319,13 @@ private class FakeActivityEventDao : ActivityEventDao {
 private class FakeSyncQueueDao : SyncQueueDao {
     private val items = linkedMapOf<String, SyncQueueEntity>()
     override suspend fun upsert(entity: SyncQueueEntity) { items[entity.id] = entity }
+    override suspend fun all(): List<SyncQueueEntity> = items.values.toList()
     override suspend fun forDocument(documentKey: String): List<SyncQueueEntity> = items.values.filter { it.documentKey == documentKey }
     override suspend fun eligible(documentKey: String, nowEpochMillis: Long): List<SyncQueueEntity> = items.values.filter { it.documentKey == documentKey && it.state in listOf(SyncOperationState.Pending.name, SyncOperationState.Failed.name, SyncOperationState.Conflict.name) && it.nextAttemptAtEpochMillis <= nowEpochMillis }
     override suspend fun eligibleAll(nowEpochMillis: Long): List<SyncQueueEntity> = items.values.filter { it.state in listOf(SyncOperationState.Pending.name, SyncOperationState.Failed.name, SyncOperationState.Conflict.name) && it.nextAttemptAtEpochMillis <= nowEpochMillis }
 }
+
+
 
 
 

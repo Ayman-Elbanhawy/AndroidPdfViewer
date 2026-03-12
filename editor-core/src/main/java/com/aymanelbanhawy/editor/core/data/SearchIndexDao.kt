@@ -10,6 +10,9 @@ interface SearchIndexDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(entities: List<SearchIndexEntity>)
 
+    @Query("SELECT DISTINCT documentKey FROM search_index_pages ORDER BY documentKey ASC")
+    suspend fun documentKeys(): List<String>
+
     @Query(
         """
         SELECT * FROM search_index_pages

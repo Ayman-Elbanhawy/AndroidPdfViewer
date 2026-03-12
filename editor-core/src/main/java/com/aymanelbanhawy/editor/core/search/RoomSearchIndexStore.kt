@@ -33,6 +33,10 @@ class RoomSearchIndexStore(
         }
     }
 
+    suspend fun clearDocument(documentKey: String) {
+        searchIndexDao.deleteForDocument(documentKey)
+    }
+
     suspend fun saveEmbeddedIndex(documentKey: String, pages: List<IndexedPageContent>) {
         val now = System.currentTimeMillis()
         searchIndexDao.upsertAll(
@@ -46,6 +50,10 @@ class RoomSearchIndexStore(
                 )
             },
         )
+    }
+
+    suspend fun saveEmbeddedIndexChunk(documentKey: String, pages: List<IndexedPageContent>) {
+        saveEmbeddedIndex(documentKey, pages)
     }
 
     suspend fun saveOcrIndex(documentKey: String, pageIndex: Int, pageText: String, blocks: List<ExtractedTextBlock>) {

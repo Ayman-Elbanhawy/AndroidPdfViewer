@@ -19,12 +19,16 @@ import com.aymanelbanhawy.editor.core.forms.DefaultFormSupportRepository
 import com.aymanelbanhawy.editor.core.forms.DigitalSignatureService
 import com.aymanelbanhawy.editor.core.forms.FormSupportRepository
 import com.aymanelbanhawy.editor.core.forms.PdfBoxDigitalSignatureService
+import com.aymanelbanhawy.editor.core.migration.CoreMigrationRepository
+import com.aymanelbanhawy.editor.core.migration.DefaultCoreMigrationRepository
 import com.aymanelbanhawy.editor.core.ocr.OcrJobPipeline
 import com.aymanelbanhawy.editor.core.ocr.OcrSessionStore
 import com.aymanelbanhawy.editor.core.organize.DefaultPageThumbnailRepository
 import com.aymanelbanhawy.editor.core.organize.PageThumbnailRepository
 import com.aymanelbanhawy.editor.core.repository.DefaultDocumentRepository
 import com.aymanelbanhawy.editor.core.repository.DocumentRepository
+import com.aymanelbanhawy.editor.core.runtime.DefaultRuntimeDiagnosticsRepository
+import com.aymanelbanhawy.editor.core.runtime.RuntimeDiagnosticsRepository
 import com.aymanelbanhawy.editor.core.scan.DefaultScanImportService
 import com.aymanelbanhawy.editor.core.scan.ScanImportService
 import com.aymanelbanhawy.editor.core.search.DefaultDocumentSearchService
@@ -61,6 +65,16 @@ class EditorCoreContainer(
     private val secureFileCipher = AndroidSecureFileCipher(appContext)
     private val enterpriseCredentialStore = EnterpriseCredentialStore(appContext, json)
     private val enterpriseRemoteRegistry = EnterpriseRemoteRegistry(appContext, json)
+    val runtimeDiagnosticsRepository: RuntimeDiagnosticsRepository = DefaultRuntimeDiagnosticsRepository(
+        context = appContext,
+        breadcrumbDao = database.runtimeBreadcrumbDao(),
+        draftDao = database.draftDao(),
+        ocrJobDao = database.ocrJobDao(),
+        syncQueueDao = database.syncQueueDao(),
+        connectorTransferJobDao = database.connectorTransferJobDao(),
+        connectorAccountDao = database.connectorAccountDao(),
+        json = json,
+    )
     val digitalSignatureService: DigitalSignatureService = PdfBoxDigitalSignatureService(
         context = appContext,
         signingIdentityDao = database.signingIdentityDao(),
@@ -88,7 +102,12 @@ class EditorCoreContainer(
         json = json,
     )
     private val extractionService = PdfBoxTextExtractionService()
-    val documentSearchService: DocumentSearchService = DefaultDocumentSearchService(searchIndexStore, extractionService, ocrSessionStore)
+    val documentSearchService: DocumentSearchService = DefaultDocumentSearchService(
+        store = searchIndexStore,
+        extractionService = extractionService,
+        ocrSessionStore = ocrSessionStore,
+        diagnosticsRepository = runtimeDiagnosticsRepository,
+    )
     val ocrJobPipeline: OcrJobPipeline = OcrJobPipeline(
         ocrJobDao = database.ocrJobDao(),
         ocrSettingsDao = database.ocrSettingsDao(),
@@ -96,6 +115,7 @@ class EditorCoreContainer(
         workManager = workManager,
         json = json,
         ocrSessionStore = ocrSessionStore,
+        diagnosticsRepository = runtimeDiagnosticsRepository,
     )
     val formSupportRepository: FormSupportRepository = DefaultFormSupportRepository(
         context = appContext,
@@ -117,6 +137,7 @@ class EditorCoreContainer(
         json = json,
         digitalSignatureService = digitalSignatureService,
         securityRepository = securityRepository,
+        diagnosticsRepository = runtimeDiagnosticsRepository,
     )
     val connectorRepository: ConnectorRepository = DefaultConnectorRepository(
         context = appContext,
@@ -129,7 +150,7 @@ class EditorCoreContainer(
         secureFileCipher = secureFileCipher,
         json = json,
     )
-    val pageThumbnailRepository: PageThumbnailRepository = DefaultPageThumbnailRepository(appContext)
+    val pageThumbnailRepository: PageThumbnailRepository = DefaultPageThumbnailRepository(appContext, runtimeDiagnosticsRepository)
     val searchIndexScheduler: SearchIndexScheduler = SearchIndexScheduler(workManager)
     val scanImportService: ScanImportService = DefaultScanImportService(appContext, ocrJobPipeline)
     private val collaborationSyncScheduler = WorkManagerCollaborationSyncScheduler(workManager)
@@ -152,6 +173,15 @@ class EditorCoreContainer(
         conflictResolver = CollaborationConflictResolver(),
         enterpriseAdminRepository = enterpriseAdminRepository,
         syncScheduler = collaborationSyncScheduler,
+        json = json,
+    )
+    val coreMigrationRepository: CoreMigrationRepository = DefaultCoreMigrationRepository(
+        context = appContext,
+        draftDao = database.draftDao(),
+        ocrJobDao = database.ocrJobDao(),
+        searchIndexDao = database.searchIndexDao(),
+        syncQueueDao = database.syncQueueDao(),
+        diagnosticsRepository = runtimeDiagnosticsRepository,
         json = json,
     )
     private val autosaveScheduler = WorkManagerAutosaveScheduler(documentRepository, workManager)

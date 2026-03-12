@@ -1,3 +1,10 @@
 <resources>
     <string name="app_name">Enterprise PDF Editor</string>
+    <string name="restriction_tenant_base_url">Tenant base URL</string>
+    <string name="restriction_ai_endpoint">AI endpoint</string>
+    <string name="restriction_collaboration_endpoint">Collaboration endpoint</string>
+    <string name="restriction_disable_cloud_ai">Disable cloud AI</string>
+    <string name="restriction_force_watermark">Force watermark text</string>
+    <string name="restriction_disable_external_sharing">Disable external sharing</string>
+    <string name="restriction_secure_logging">Enable secure logging</string>
 </resources>

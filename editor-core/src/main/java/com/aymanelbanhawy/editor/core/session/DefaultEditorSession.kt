@@ -92,6 +92,7 @@ class DefaultEditorSession(
                 EditorAction.Activity -> "Activity workspace is active."
                 EditorAction.Protect -> "Protection settings remain a repository concern."
                 EditorAction.Settings -> "Settings and admin workspace is active."
+                EditorAction.Diagnostics -> "Diagnostics workspace is active."
                 EditorAction.Share -> null
             }
             if (action == EditorAction.Share) {
@@ -196,4 +197,5 @@ class DefaultEditorSession(
         )
     }
 }
+
 

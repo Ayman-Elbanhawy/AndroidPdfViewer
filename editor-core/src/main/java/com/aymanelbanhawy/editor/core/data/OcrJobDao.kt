@@ -17,6 +17,9 @@ interface OcrJobDao {
     @Query("SELECT * FROM ocr_jobs WHERE id = :id LIMIT 1")
     suspend fun job(id: String): OcrJobEntity?
 
+    @Query("SELECT * FROM ocr_jobs ORDER BY updatedAtEpochMillis DESC")
+    suspend fun all(): List<OcrJobEntity>
+
     @Query(
         """
         SELECT * FROM ocr_jobs

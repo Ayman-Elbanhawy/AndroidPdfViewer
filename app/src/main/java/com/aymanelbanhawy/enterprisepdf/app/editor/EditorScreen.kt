@@ -61,6 +61,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.toColorInt
 import com.aymanelbanhawy.aiassistant.core.AiProviderDraft
 import com.aymanelbanhawy.aiassistant.core.AssistantPrivacyMode
 import com.aymanelbanhawy.aiassistant.ui.AssistantSidebar
@@ -86,6 +87,7 @@ import com.aymanelbanhawy.enterprisepdf.app.collaboration.ActivitySidebar
 import com.aymanelbanhawy.enterprisepdf.app.connectors.ConnectorExportDialog
 import com.aymanelbanhawy.enterprisepdf.app.collaboration.ReviewSidebar
 import com.aymanelbanhawy.enterprisepdf.app.enterprise.SettingsAdminSidebar
+import com.aymanelbanhawy.enterprisepdf.app.diagnostics.DiagnosticsSidebar
 import com.aymanelbanhawy.enterprisepdf.app.forms.FormsSidebar
 import com.aymanelbanhawy.enterprisepdf.app.forms.SignatureCaptureDialog
 import com.aymanelbanhawy.enterprisepdf.app.scan.ScanImportDialog
@@ -207,6 +209,9 @@ fun EditorScreen(
     onOpenConnectorDocument: (String, String, String) -> Unit,
     onSyncConnectorTransfers: () -> Unit,
     onCleanupConnectorCache: () -> Unit,
+    onRefreshDiagnostics: () -> Unit,
+    onRepairRuntimeState: () -> Unit,
+    onCleanupRuntimeCaches: () -> Unit,
     onSaveToConnectorEditable: () -> Unit,
     onSaveToConnectorFlattened: () -> Unit,
     onShareToConnectorEditable: () -> Unit,
@@ -331,6 +336,7 @@ fun EditorScreen(
                                 EditorAction.Activity -> state.activePanel == WorkspacePanel.Activity
                                 EditorAction.Protect -> state.activePanel == WorkspacePanel.Protect
                                 EditorAction.Settings -> state.activePanel == WorkspacePanel.Settings
+                                EditorAction.Diagnostics -> state.activePanel == WorkspacePanel.Diagnostics
                                 else -> false
                             },
                             onClick = { onActionSelected(action) },
@@ -481,6 +487,15 @@ fun EditorScreen(
                         onCleanupConnectorCache = onCleanupConnectorCache,
                     )
                 }
+                state.activePanel == WorkspacePanel.Diagnostics && state.annotationSidebarVisible -> {
+                    DiagnosticsSidebar(
+                        modifier = Modifier.width(420.dp).fillMaxHeight().padding(12.dp),
+                        snapshot = state.runtimeDiagnostics,
+                        onRefresh = onRefreshDiagnostics,
+                        onRepair = onRepairRuntimeState,
+                        onCleanupCaches = onCleanupRuntimeCaches,
+                    )
+                }
                 state.activePanel == WorkspacePanel.Protect && state.annotationSidebarVisible -> {
                     SecuritySidebar(
                         modifier = Modifier.width(420.dp).fillMaxHeight().padding(12.dp),
@@ -601,7 +616,7 @@ private fun AnnotationSidebar(
 
 @Composable
 private fun ColorChip(colorHex: String, onClick: () -> Unit) {
-    val color = Color(android.graphics.Color.parseColor(colorHex))
+    val color = Color(colorHex.toColorInt())
     TextButton(onClick = onClick) {
         Box(modifier = Modifier.clip(CircleShape).background(color).width(28.dp).padding(vertical = 14.dp))
     }
@@ -657,6 +672,7 @@ private fun EditorAction.icon() = when (this) {
     EditorAction.Review -> Icons.AutoMirrored.Outlined.Comment
     EditorAction.Activity -> Icons.Outlined.History
     EditorAction.Settings -> Icons.Outlined.Settings
+    EditorAction.Diagnostics -> Icons.Outlined.Settings
 }
 
 private fun EditorAction.tooltipLabel(): String = when (this) {
@@ -671,7 +687,12 @@ private fun EditorAction.tooltipLabel(): String = when (this) {
     EditorAction.Review -> "Review"
     EditorAction.Activity -> "Activity"
     EditorAction.Settings -> "Settings"
+    EditorAction.Diagnostics -> "Diagnostics"
 }
+
+
+
+
 
 
 

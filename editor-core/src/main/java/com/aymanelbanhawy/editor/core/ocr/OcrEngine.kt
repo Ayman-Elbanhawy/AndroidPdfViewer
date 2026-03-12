@@ -36,6 +36,7 @@ data class OcrSettingsModel(
     val preprocessing: OcrPreprocessingOptions = OcrPreprocessingOptions(),
     val timeoutSeconds: Int = 20,
     val maxRetryCount: Int = 2,
+    val pagesPerWorkerBatch: Int = 8,
     val embedSessionDataOnExport: Boolean = true,
     val languageHints: List<String> = emptyList(),
 )

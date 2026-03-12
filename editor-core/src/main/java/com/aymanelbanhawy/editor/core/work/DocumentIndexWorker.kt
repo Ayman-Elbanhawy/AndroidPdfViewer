@@ -12,10 +12,15 @@ import androidx.work.workDataOf
 import com.aymanelbanhawy.editor.core.data.PdfWorkspaceDatabase
 import com.aymanelbanhawy.editor.core.model.DocumentSourceType
 import com.aymanelbanhawy.editor.core.model.PdfDocumentRef
+import com.aymanelbanhawy.editor.core.runtime.DefaultRuntimeDiagnosticsRepository
+import com.aymanelbanhawy.editor.core.runtime.RuntimeEventCategory
+import com.aymanelbanhawy.editor.core.runtime.RuntimeLogLevel
 import com.aymanelbanhawy.editor.core.search.PdfBoxTextExtractionService
 import com.aymanelbanhawy.editor.core.search.RoomSearchIndexStore
+import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.Json
 import java.io.File
+import kotlin.coroutines.coroutineContext
 
 class DocumentIndexWorker(
     appContext: Context,
@@ -29,13 +34,20 @@ class DocumentIndexWorker(
         val file = File(workingCopyPath)
         if (!file.exists()) return Result.retry()
 
-        val database = Room.databaseBuilder(applicationContext, PdfWorkspaceDatabase::class.java, DB_NAME).fallbackToDestructiveMigration().build()
+        val database = Room.databaseBuilder(applicationContext, PdfWorkspaceDatabase::class.java, DB_NAME).build()
         return try {
-            val store = RoomSearchIndexStore(
-                searchIndexDao = database.searchIndexDao(),
-                recentSearchDao = database.recentSearchDao(),
-                json = Json { ignoreUnknownKeys = true; encodeDefaults = true; classDiscriminator = "_type" },
+            val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; classDiscriminator = "_type" }
+            val diagnostics = DefaultRuntimeDiagnosticsRepository(
+                context = applicationContext,
+                breadcrumbDao = database.runtimeBreadcrumbDao(),
+                draftDao = database.draftDao(),
+                ocrJobDao = database.ocrJobDao(),
+                syncQueueDao = database.syncQueueDao(),
+                connectorTransferJobDao = database.connectorTransferJobDao(),
+                connectorAccountDao = database.connectorAccountDao(),
+                json = json,
             )
+            val store = RoomSearchIndexStore(database.searchIndexDao(), database.recentSearchDao(), json)
             val extractor = PdfBoxTextExtractionService()
             val documentRef = PdfDocumentRef(
                 uriString = file.toUri().toString(),
@@ -44,9 +56,14 @@ class DocumentIndexWorker(
                 sourceKey = documentKey,
                 workingCopyPath = workingCopyPath,
             )
-            store.saveEmbeddedIndex(documentKey, extractor.extract(documentRef))
+            store.clearDocument(documentKey)
+            extractor.extractInChunks(documentRef, chunkSize = 12) { chunk ->
+                coroutineContext.ensureActive()
+                store.saveEmbeddedIndexChunk(documentKey, chunk)
+            }
+            diagnostics.recordBreadcrumb(RuntimeEventCategory.Indexing, RuntimeLogLevel.Info, "background_index_complete", "Background indexing completed.", mapOf("documentKey" to documentKey))
             Result.success()
-        } catch (throwable: Throwable) {
+        } catch (_: Throwable) {
             Result.retry()
         } finally {
             database.close()

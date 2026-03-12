@@ -1,13 +1,13 @@
 package com.aymanelbanhawy.editor.core.ocr
 
-import androidx.work.ExistingWorkPolicy
-import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
-import androidx.work.workDataOf
 import com.aymanelbanhawy.editor.core.data.OcrJobDao
 import com.aymanelbanhawy.editor.core.data.OcrJobEntity
 import com.aymanelbanhawy.editor.core.data.OcrSettingsDao
 import com.aymanelbanhawy.editor.core.data.OcrSettingsEntity
+import com.aymanelbanhawy.editor.core.runtime.RuntimeDiagnosticsRepository
+import com.aymanelbanhawy.editor.core.runtime.RuntimeEventCategory
+import com.aymanelbanhawy.editor.core.runtime.RuntimeLogLevel
 import com.aymanelbanhawy.editor.core.search.DocumentSearchService
 import com.aymanelbanhawy.editor.core.search.ExtractedTextBlock
 import com.aymanelbanhawy.editor.core.work.OcrWorker
@@ -23,6 +23,7 @@ class OcrJobPipeline(
     private val workManager: WorkManager,
     private val json: Json,
     private val ocrSessionStore: OcrSessionStore,
+    private val diagnosticsRepository: RuntimeDiagnosticsRepository? = null,
 ) {
     suspend fun enqueue(documentKey: String, jobs: List<QueuedOcrPage>, settings: OcrSettingsModel) {
         saveSettings(settings)
@@ -57,6 +58,13 @@ class OcrJobPipeline(
                 )
             },
         )
+        diagnosticsRepository?.recordBreadcrumb(
+            category = RuntimeEventCategory.Ocr,
+            level = RuntimeLogLevel.Info,
+            eventName = "ocr_jobs_enqueued",
+            message = "Queued ${jobs.size} OCR jobs.",
+            metadata = mapOf("documentKey" to documentKey),
+        )
         OcrWorker.enqueue(workManager, documentKey)
     }
 
@@ -79,7 +87,12 @@ class OcrJobPipeline(
     }
 
     suspend fun pendingWork(documentKey: String, limit: Int, staleAfterMillis: Long): List<OcrJobEntity> {
-        return ocrJobDao.pendingOrResumable(documentKey, System.currentTimeMillis() - staleAfterMillis, limit)
+        val settings = loadSettings()
+        return ocrJobDao.pendingOrResumable(
+            documentKey,
+            System.currentTimeMillis() - staleAfterMillis,
+            limit.coerceAtMost(settings.pagesPerWorkerBatch.coerceIn(1, 24)),
+        )
     }
 
     suspend fun markRunning(job: OcrJobEntity, progressPercent: Int = 8, preprocessedImagePath: String? = null): OcrJobEntity {
@@ -138,6 +151,13 @@ class OcrJobPipeline(
                 completedAtEpochMillis = if (canRetry) null else System.currentTimeMillis(),
                 updatedAtEpochMillis = System.currentTimeMillis(),
             ),
+        )
+        diagnosticsRepository?.recordBreadcrumb(
+            category = RuntimeEventCategory.Ocr,
+            level = if (canRetry) RuntimeLogLevel.Warn else RuntimeLogLevel.Error,
+            eventName = if (canRetry) "ocr_retry_scheduled" else "ocr_failed",
+            message = diagnostics.message,
+            metadata = mapOf("documentKey" to job.documentKey, "pageIndex" to job.pageIndex.toString()),
         )
         if (canRetry) {
             OcrWorker.enqueue(workManager, job.documentKey)

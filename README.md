@@ -12,6 +12,56 @@ so if you don't like 2.x version, try 1.x.__
 Library for displaying PDF documents on Android, with `animations`, `gestures`, `zoom` and `double tap` support.
 It is based on [PdfiumAndroid](https://github.com/barteksc/PdfiumAndroid) for decoding PDF files. Works on API 11 (Android 3.0) and higher.
 Licensed under Apache License 2.0.
+## Enterprise Editor Workspace
+
+This fork now contains two layers:
+
+* `android-pdf-viewer` / `viewer-engine`: the legacy rendering engine module, preserved and still usable as the low-level PDF viewport.
+* `editor-core`, `ai-assistant`, and `app`: the newer Kotlin/AndroidX/Compose-based editor platform built around the viewer engine.
+
+The repository is no longer just a widget sample. It now includes a modular PDF editor shell with:
+
+* document sessions, undo/redo, autosave, and crash-safe draft restore
+* annotation, page organize, forms, signing, search, OCR, review/collaboration, security, enterprise admin, AI assistant, and connector foundations
+* migration-safe persistence, startup repair, diagnostics, release engineering, and managed enterprise configuration hooks
+
+## Build the Current App
+
+Open the repository in Android Studio and run the `app` module.
+
+Important modules:
+
+* `:viewer-engine` maps to the existing `android-pdf-viewer` rendering code
+* `:editor-core` contains document/session/persistence/business logic
+* `:ai-assistant` contains the assistant runtime and provider integrations
+* `:app` contains the Compose UI shell and sample enterprise editor app
+
+Common commands:
+
+```powershell
+.\gradlew.bat :editor-core:test
+.\gradlew.bat :app:compileDevDebugKotlin
+.\gradlew.bat :app:assembleDevDebug
+```
+
+Supported product flavors:
+
+* `dev`
+* `qa`
+* `prod`
+* `enterpriseDemo`
+
+## Upgrade and Migration Safety
+
+The current implementation includes a versioned migration/repair layer for existing local users. On startup the app now:
+
+* backs up local databases, drafts, and sidecar session files
+* upgrades legacy `.pageedits.json` sidecars into the current mutation-session format
+* preserves compatibility for older local drafts and editor sessions
+* resumes interrupted OCR and sync queue work safely
+* records migration and repair reports under the app files directory for support/export workflows
+
+This is intended to let users upgrade without silently dropping local work.
 
 ## What's new in 3.2.0-beta.1?
 * Merge PR #714 with optimized page load
@@ -301,3 +351,4 @@ pdfView.exportEditedPdf(output);
 ```
 
 Coordinates are normalized per page, so `RectF(0f, 0f, 1f, 1f)` maps to the full page. Export preserves the original input PDF and writes the edited result to a new file.
+

@@ -14,5 +14,6 @@ enum class EditorAction {
     Activity,
     Protect,
     Settings,
+    Diagnostics,
     Share,
 }

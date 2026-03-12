@@ -169,6 +169,9 @@ class MainActivity : ComponentActivity() {
                             onOpenConnectorDocument = viewModel::openDocumentFromConnector,
                             onSyncConnectorTransfers = viewModel::syncConnectorTransfers,
                             onCleanupConnectorCache = viewModel::cleanupConnectorCache,
+                            onRefreshDiagnostics = viewModel::refreshDiagnostics,
+                            onRepairRuntimeState = viewModel::repairRuntimeState,
+                            onCleanupRuntimeCaches = viewModel::cleanupConnectorCache,
                             onSaveToConnectorEditable = viewModel::saveToConnectorEditable,
                             onSaveToConnectorFlattened = viewModel::saveToConnectorFlattened,
                             onShareToConnectorEditable = viewModel::shareToConnectorEditable,
@@ -217,6 +220,7 @@ class MainActivity : ComponentActivity() {
         startActivity(Intent.createChooser(sendIntent, event.title))
     }
 }
+
 
 
 

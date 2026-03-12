@@ -12,7 +12,7 @@ fun createEditorCoreDatabase(context: Context): PdfWorkspaceDatabase {
         PdfWorkspaceDatabase::class.java,
         DATABASE_NAME,
     )
-        .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
+        .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
         .build()
 }
 
@@ -100,5 +100,14 @@ val MIGRATION_11_12 = object : androidx.room.migration.Migration(11, 12) {
             "CREATE TABLE IF NOT EXISTS connector_transfer_jobs (id TEXT NOT NULL, connector_account_id TEXT NOT NULL, document_key TEXT NOT NULL, remote_path TEXT NOT NULL, local_cache_path TEXT NOT NULL, direction TEXT NOT NULL, status TEXT NOT NULL, bytes_transferred INTEGER NOT NULL, total_bytes INTEGER NOT NULL, resumable_token TEXT, attempt_count INTEGER NOT NULL, last_error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(id))",
         )
         database.execSQL("CREATE INDEX IF NOT EXISTS index_connector_transfer_jobs_status_created_at ON connector_transfer_jobs(status, created_at)")
+    }
+}
+
+val MIGRATION_12_13 = object : androidx.room.migration.Migration(12, 13) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL(
+            "CREATE TABLE IF NOT EXISTS runtime_breadcrumbs (id TEXT NOT NULL, category TEXT NOT NULL, level TEXT NOT NULL, event_name TEXT NOT NULL, message TEXT NOT NULL, metadata_json TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(id))",
+        )
+        database.execSQL("CREATE INDEX IF NOT EXISTS index_runtime_breadcrumbs_created_at ON runtime_breadcrumbs(created_at)")
     }
 }

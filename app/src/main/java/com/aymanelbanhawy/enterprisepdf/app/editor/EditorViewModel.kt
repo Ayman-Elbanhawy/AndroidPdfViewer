@@ -98,6 +98,9 @@ import com.aymanelbanhawy.editor.core.security.TenantPolicyHooksModel
 import com.aymanelbanhawy.editor.core.security.WatermarkModel
 import com.aymanelbanhawy.editor.core.session.EditorSession
 import com.aymanelbanhawy.editor.core.session.EditorSessionEvent
+import com.aymanelbanhawy.editor.core.runtime.RuntimeLogLevel
+import com.aymanelbanhawy.editor.core.runtime.RuntimeEventCategory
+import com.aymanelbanhawy.editor.core.runtime.RuntimeDiagnosticsSnapshot
 import com.aymanelbanhawy.enterprisepdf.app.AppContainer
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -123,6 +126,7 @@ enum class WorkspacePanel {
     Activity,
     Protect,
     Settings,
+    Diagnostics,
 }
 
 data class ConnectorExportUiState(
@@ -173,6 +177,7 @@ data class EditorUiState(
     val connectorAccounts: List<ConnectorAccountModel> = emptyList(),
     val connectorJobs: List<ConnectorTransferJobModel> = emptyList(),
     val connectorExportDialog: ConnectorExportUiState? = null,
+    val runtimeDiagnostics: RuntimeDiagnosticsSnapshot = RuntimeDiagnosticsSnapshot(),
 ) {
     val selectedAnnotation: AnnotationModel?
         get() = session.document?.pages?.flatMap { it.annotations }?.firstOrNull { it.id in session.selection.selectedAnnotationIds }
@@ -238,6 +243,7 @@ class EditorViewModel(
     private val connectorAccounts = MutableStateFlow(emptyList<ConnectorAccountModel>())
     private val connectorJobs = MutableStateFlow(emptyList<ConnectorTransferJobModel>())
     private val connectorExportDialog = MutableStateFlow<ConnectorExportUiState?>(null)
+    private val runtimeDiagnostics = MutableStateFlow(RuntimeDiagnosticsSnapshot())
     private val assistantState = MutableStateFlow(AssistantUiState())
     private val localEvents = MutableSharedFlow<EditorSessionEvent>(extraBufferCapacity = 16)
     private val indexingPolicy = IndexingPolicy()
@@ -281,6 +287,7 @@ class EditorViewModel(
         connectorAccounts,
         connectorJobs,
         connectorExportDialog,
+        runtimeDiagnostics,
     ) { values ->
         EditorUiState(
             session = values[0] as EditorSessionState,
@@ -320,6 +327,7 @@ class EditorViewModel(
             connectorAccounts = values[34] as List<ConnectorAccountModel>,
             connectorJobs = values[35] as List<ConnectorTransferJobModel>,
             connectorExportDialog = values[36] as ConnectorExportUiState?,
+            runtimeDiagnostics = values[37] as RuntimeDiagnosticsSnapshot,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EditorUiState())
 
@@ -334,6 +342,7 @@ class EditorViewModel(
             refreshCollaborationData()
             refreshSecurityData()
             refreshEnterpriseData()
+            refreshDiagnosticsData()
             recordActivity(ActivityEventType.Opened, "Opened ${session.state.value.document?.documentRef?.displayName.orEmpty()}")
             recordSecurityAudit(AuditEventType.DocumentOpened, "Opened document")
             queueTelemetry("document_opened", mapOf("mode" to enterpriseState.value.authSession.mode.name))
@@ -398,6 +407,11 @@ class EditorViewModel(
                 sidebarVisible.value = true
                 viewModelScope.launch { refreshEnterpriseData(); refreshConnectorData() }
                 session.onActionSelected(action)
+            }
+            EditorAction.Diagnostics -> {
+                activePanel.value = WorkspacePanel.Diagnostics
+                sidebarVisible.value = true
+                viewModelScope.launch { refreshDiagnosticsData() }
             }
             EditorAction.Share -> {
                 val document = session.state.value.document ?: return
@@ -1405,9 +1419,33 @@ class EditorViewModel(
             )
         }
     }
+    fun refreshDiagnostics() { viewModelScope.launch { refreshDiagnosticsData() } }
+
+    fun repairRuntimeState() {
+        viewModelScope.launch {
+            val repair = appContainer.runtimeDiagnosticsRepository.runStartupRepair()
+            appContainer.runtimeDiagnosticsRepository.recordBreadcrumb(
+                category = RuntimeEventCategory.Recovery,
+                level = RuntimeLogLevel.Info,
+                eventName = "manual_repair",
+                message = "Manual runtime repair executed.",
+                metadata = mapOf(
+                    "repairedDrafts" to repair.repairedDraftCount.toString(),
+                    "recoveredSaves" to repair.recoveredSaveCount.toString(),
+                ),
+            )
+            refreshDiagnosticsData()
+            localEvents.emit(EditorSessionEvent.UserMessage("Repair complete"))
+        }
+    }
+
     private suspend fun refreshConnectorData() {
         connectorAccounts.value = appContainer.connectorRepository.accounts()
         connectorJobs.value = appContainer.connectorRepository.transferJobs()
+    }
+
+    private suspend fun refreshDiagnosticsData() {
+        runtimeDiagnostics.value = appContainer.runtimeDiagnosticsRepository.captureSnapshot(session.state.value.document)
     }
 
     private suspend fun refreshFormSupportData() {
@@ -1557,6 +1595,11 @@ class EditorViewModel(
 }
 
 private fun Set<Int>.toggle(index: Int): Set<Int> = if (index in this) this - index else this + index
+
+
+
+
+
 
 
 

@@ -12,13 +12,17 @@ import com.aymanelbanhawy.editor.core.ocr.MlKitOcrEngine
 import com.aymanelbanhawy.editor.core.ocr.OcrEngineDiagnostics
 import com.aymanelbanhawy.editor.core.ocr.OcrEngineException
 import com.aymanelbanhawy.editor.core.ocr.OcrJobPipeline
-import com.aymanelbanhawy.editor.core.ocr.OcrJobStatus
 import com.aymanelbanhawy.editor.core.ocr.OcrPageRequest
 import com.aymanelbanhawy.editor.core.ocr.OcrSessionStore
+import com.aymanelbanhawy.editor.core.runtime.DefaultRuntimeDiagnosticsRepository
+import com.aymanelbanhawy.editor.core.runtime.RuntimeEventCategory
+import com.aymanelbanhawy.editor.core.runtime.RuntimeLogLevel
 import com.aymanelbanhawy.editor.core.search.DefaultDocumentSearchService
 import com.aymanelbanhawy.editor.core.search.PdfBoxTextExtractionService
 import com.aymanelbanhawy.editor.core.search.RoomSearchIndexStore
+import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.Json
+import kotlin.coroutines.coroutineContext
 
 class OcrWorker(
     appContext: Context,
@@ -31,8 +35,18 @@ class OcrWorker(
         return try {
             val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; classDiscriminator = "_type" }
             val ocrSessionStore = OcrSessionStore(json)
+            val diagnostics = DefaultRuntimeDiagnosticsRepository(
+                context = applicationContext,
+                breadcrumbDao = database.runtimeBreadcrumbDao(),
+                draftDao = database.draftDao(),
+                ocrJobDao = database.ocrJobDao(),
+                syncQueueDao = database.syncQueueDao(),
+                connectorTransferJobDao = database.connectorTransferJobDao(),
+                connectorAccountDao = database.connectorAccountDao(),
+                json = json,
+            )
             val store = RoomSearchIndexStore(database.searchIndexDao(), database.recentSearchDao(), json)
-            val searchService = DefaultDocumentSearchService(store, PdfBoxTextExtractionService(), ocrSessionStore)
+            val searchService = DefaultDocumentSearchService(store, PdfBoxTextExtractionService(), ocrSessionStore, diagnostics)
             val pipeline = OcrJobPipeline(
                 ocrJobDao = database.ocrJobDao(),
                 ocrSettingsDao = database.ocrSettingsDao(),
@@ -40,13 +54,16 @@ class OcrWorker(
                 workManager = WorkManager.getInstance(applicationContext),
                 json = json,
                 ocrSessionStore = ocrSessionStore,
+                diagnosticsRepository = diagnostics,
             )
             val engine = MlKitOcrEngine(applicationContext)
             val settings = pipeline.loadSettings()
-            val jobs = pipeline.pendingWork(documentKey, limit = 12, staleAfterMillis = 2 * 60 * 1000L)
+            val jobs = pipeline.pendingWork(documentKey, limit = settings.pagesPerWorkerBatch, staleAfterMillis = 2 * 60 * 1000L)
             if (jobs.isEmpty()) return Result.success()
             var shouldRetry = false
             jobs.forEach { job ->
+                coroutineContext.ensureActive()
+                if (isStopped) return Result.retry()
                 val running = pipeline.markRunning(job)
                 runCatching {
                     pipeline.updateProgress(running, 20)
@@ -61,7 +78,7 @@ class OcrWorker(
                     pipeline.updateProgress(running, 85, result.preprocessedImagePath)
                     pipeline.complete(running, result, settings)
                 }.onFailure { error ->
-                    val diagnostics = when (error) {
+                    val diagnosticsPayload = when (error) {
                         is OcrEngineException -> error.diagnostics
                         else -> OcrEngineDiagnostics(
                             code = "ocr-worker-failure",
@@ -69,10 +86,11 @@ class OcrWorker(
                             retryable = false,
                         )
                     }
-                    pipeline.fail(running, diagnostics)
-                    shouldRetry = shouldRetry || diagnostics.retryable
+                    pipeline.fail(running, diagnosticsPayload)
+                    shouldRetry = shouldRetry || diagnosticsPayload.retryable
                 }
             }
+            diagnostics.recordBreadcrumb(RuntimeEventCategory.Ocr, RuntimeLogLevel.Info, "ocr_worker_complete", "OCR worker processed ${jobs.size} pages.", mapOf("documentKey" to documentKey))
             if (shouldRetry) Result.retry() else Result.success()
         } catch (_: Throwable) {
             Result.retry()
