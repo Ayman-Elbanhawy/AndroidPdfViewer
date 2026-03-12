@@ -16,5 +16,7 @@ data class RemoteDocumentMetadataEntity(
     @ColumnInfo(name = "checksum_sha256") val checksumSha256: String?,
     @ColumnInfo(name = "size_bytes") val sizeBytes: Long?,
     @ColumnInfo(name = "mime_type") val mimeType: String,
+    @ColumnInfo(name = "provider_metadata_json") val providerMetadataJson: String = "{}",
+    @ColumnInfo(name = "last_conflict_at") val lastConflictAtEpochMillis: Long? = null,
     @ColumnInfo(name = "updated_at") val updatedAtEpochMillis: Long,
 )

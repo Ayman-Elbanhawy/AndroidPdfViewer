@@ -12,7 +12,7 @@ fun createEditorCoreDatabase(context: Context): PdfWorkspaceDatabase {
         PdfWorkspaceDatabase::class.java,
         DATABASE_NAME,
     )
-        .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
+        .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
         .build()
 }
 
@@ -109,5 +109,41 @@ val MIGRATION_12_13 = object : androidx.room.migration.Migration(12, 13) {
             "CREATE TABLE IF NOT EXISTS runtime_breadcrumbs (id TEXT NOT NULL, category TEXT NOT NULL, level TEXT NOT NULL, event_name TEXT NOT NULL, message TEXT NOT NULL, metadata_json TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(id))",
         )
         database.execSQL("CREATE INDEX IF NOT EXISTS index_runtime_breadcrumbs_created_at ON runtime_breadcrumbs(created_at)")
+    }
+}
+
+val MIGRATION_13_14 = object : androidx.room.migration.Migration(13, 14) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL(
+            "CREATE TABLE IF NOT EXISTS compare_reports (id TEXT NOT NULL, documentKey TEXT NOT NULL, baselineDisplayName TEXT NOT NULL, comparedDisplayName TEXT NOT NULL, createdAtEpochMillis INTEGER NOT NULL, summaryJson TEXT NOT NULL, pageChangesJson TEXT NOT NULL, comparedFilePath TEXT NOT NULL, PRIMARY KEY(id))",
+        )
+        database.execSQL("CREATE INDEX IF NOT EXISTS index_compare_reports_documentKey ON compare_reports(documentKey)")
+        database.execSQL("CREATE INDEX IF NOT EXISTS index_compare_reports_createdAtEpochMillis ON compare_reports(createdAtEpochMillis)")
+        database.execSQL(
+            "CREATE TABLE IF NOT EXISTS form_templates (id TEXT NOT NULL, documentKey TEXT NOT NULL, name TEXT NOT NULL, schemaJson TEXT NOT NULL, createdAtEpochMillis INTEGER NOT NULL, updatedAtEpochMillis INTEGER NOT NULL, exportedSchemaPath TEXT, PRIMARY KEY(id))",
+        )
+        database.execSQL("CREATE INDEX IF NOT EXISTS index_form_templates_documentKey ON form_templates(documentKey)")
+        database.execSQL("CREATE INDEX IF NOT EXISTS index_form_templates_updatedAtEpochMillis ON form_templates(updatedAtEpochMillis)")
+        database.execSQL(
+            "CREATE TABLE IF NOT EXISTS workflow_requests (id TEXT NOT NULL, documentKey TEXT NOT NULL, type TEXT NOT NULL, title TEXT NOT NULL, createdBy TEXT NOT NULL, createdAtEpochMillis INTEGER NOT NULL, updatedAtEpochMillis INTEGER NOT NULL, recipientsJson TEXT NOT NULL, assignedFieldsJson TEXT NOT NULL, templateId TEXT, signingOrderEnforced INTEGER NOT NULL, status TEXT NOT NULL, expiresAtEpochMillis INTEGER, reminderScheduleJson TEXT, responsesJson TEXT NOT NULL, submissionsJson TEXT NOT NULL, metadataJson TEXT NOT NULL, PRIMARY KEY(id))",
+        )
+        database.execSQL("CREATE INDEX IF NOT EXISTS index_workflow_requests_documentKey ON workflow_requests(documentKey)")
+        database.execSQL("CREATE INDEX IF NOT EXISTS index_workflow_requests_status ON workflow_requests(status)")
+        database.execSQL("CREATE INDEX IF NOT EXISTS index_workflow_requests_updatedAtEpochMillis ON workflow_requests(updatedAtEpochMillis)")
+    }
+}
+
+
+val MIGRATION_14_15 = object : androidx.room.migration.Migration(14, 15) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL("ALTER TABLE connector_accounts ADD COLUMN capabilities_json TEXT NOT NULL DEFAULT '[]'")
+        database.execSQL("ALTER TABLE connector_accounts ADD COLUMN configuration_json TEXT NOT NULL DEFAULT '{}'")
+        database.execSQL("ALTER TABLE remote_document_metadata ADD COLUMN provider_metadata_json TEXT NOT NULL DEFAULT '{}'")
+        database.execSQL("ALTER TABLE remote_document_metadata ADD COLUMN last_conflict_at INTEGER")
+        database.execSQL("ALTER TABLE connector_transfer_jobs ADD COLUMN temp_materialized_path TEXT")
+        database.execSQL("ALTER TABLE connector_transfer_jobs ADD COLUMN remote_etag TEXT")
+        database.execSQL("ALTER TABLE connector_transfer_jobs ADD COLUMN remote_version_id TEXT")
+        database.execSQL("ALTER TABLE connector_transfer_jobs ADD COLUMN conflict_strategy TEXT NOT NULL DEFAULT 'Fail'")
+        database.execSQL("ALTER TABLE connector_transfer_jobs ADD COLUMN cache_expires_at INTEGER")
     }
 }

@@ -1,8 +1,8 @@
 package com.aymanelbanhawy.editor.core.connectors
 
+import android.app.Application
 import android.content.Context
 import android.content.ContextWrapper
-import android.app.Application
 import com.aymanelbanhawy.editor.core.data.ConnectorAccountDao
 import com.aymanelbanhawy.editor.core.data.ConnectorAccountEntity
 import com.aymanelbanhawy.editor.core.data.ConnectorTransferJobDao
@@ -11,6 +11,7 @@ import com.aymanelbanhawy.editor.core.data.RemoteDocumentMetadataDao
 import com.aymanelbanhawy.editor.core.data.RemoteDocumentMetadataEntity
 import com.aymanelbanhawy.editor.core.enterprise.AdminPolicyModel
 import com.aymanelbanhawy.editor.core.enterprise.AuthSessionModel
+import com.aymanelbanhawy.editor.core.enterprise.CloudConnector
 import com.aymanelbanhawy.editor.core.enterprise.EnterpriseAdminRepository
 import com.aymanelbanhawy.editor.core.enterprise.EnterpriseAdminStateModel
 import com.aymanelbanhawy.editor.core.enterprise.EntitlementStateModel
@@ -54,7 +55,6 @@ import org.junit.Before
 import org.junit.Test
 
 class DefaultConnectorRepositoryTest {
-
     private lateinit var context: Context
     private lateinit var accountDao: TestConnectorAccountDao
     private lateinit var metadataDao: TestRemoteDocumentMetadataDao
@@ -75,17 +75,7 @@ class DefaultConnectorRepositoryTest {
         enterpriseRepository = TestEnterpriseAdminRepository()
         securityRepository = TestSecurityRepository()
         documentRepository = TestDocumentRepository(context.cacheDir)
-        repository = DefaultConnectorRepository(
-            context = context,
-            accountDao = accountDao,
-            remoteDocumentMetadataDao = metadataDao,
-            transferJobDao = transferJobDao,
-            documentRepository = documentRepository,
-            enterpriseAdminRepository = enterpriseRepository,
-            securityRepository = securityRepository,
-            secureFileCipher = PassthroughCipher(),
-            json = json,
-        )
+        repository = DefaultConnectorRepository(context, accountDao, metadataDao, transferJobDao, documentRepository, enterpriseRepository, securityRepository, PassthroughCipher(), json)
     }
 
     @After
@@ -98,62 +88,32 @@ class DefaultConnectorRepositoryTest {
 
     @Test
     fun saveAccount_blocks_disallowed_connector_by_policy() = runTest {
-        enterpriseRepository.state = enterpriseRepository.state.copy(
-            adminPolicy = enterpriseRepository.state.adminPolicy.copy(
-                allowedCloudConnectors = listOf(com.aymanelbanhawy.editor.core.enterprise.CloudConnector.LocalFiles),
-            ),
-        )
-
-        val error = runCatching {
-            repository.saveAccount(
-                ConnectorAccountDraft(
-                    connectorType = com.aymanelbanhawy.editor.core.enterprise.CloudConnector.WebDav,
-                    displayName = "Corp WebDAV",
-                    baseUrl = "http://127.0.0.1:9999",
-                ),
-            )
-        }.exceptionOrNull()
-
+        enterpriseRepository.state = enterpriseRepository.state.copy(adminPolicy = enterpriseRepository.state.adminPolicy.copy(allowedCloudConnectors = listOf(CloudConnector.LocalFiles)))
+        val error = runCatching { repository.saveAccount(ConnectorAccountDraft(CloudConnector.WebDav, "Corp WebDAV", "http://127.0.0.1:9999")) }.exceptionOrNull()
         assertThat(error).isNotNull()
         assertThat(error?.message).contains("not allowed")
     }
 
     @Test
+    fun saveAccount_blocks_nonapproved_destination_pattern() = runTest {
+        enterpriseRepository.state = enterpriseRepository.state.copy(
+            adminPolicy = enterpriseRepository.state.adminPolicy.copy(
+                allowedCloudConnectors = listOf(CloudConnector.LocalFiles, CloudConnector.WebDav),
+                allowedDestinationPatterns = listOf("approved.example.com"),
+            ),
+        )
+        val error = runCatching { repository.saveAccount(ConnectorAccountDraft(CloudConnector.WebDav, "Restricted", "https://blocked.example.com/webdav")) }.exceptionOrNull()
+        assertThat(error).isNotNull()
+        assertThat(error?.message).contains("not approved")
+    }
+
+    @Test
     fun syncPendingTransfers_marks_conflict_when_local_target_changed() = runTest {
-        val target = File(context.cacheDir, "test-documents/conflict.pdf").apply {
-            parentFile?.mkdirs()
-            writeText("existing")
-        }
-        metadataDao.upsert(
-            RemoteDocumentMetadataEntity(
-                documentKey = "local-files::${target.absolutePath}",
-                connectorAccountId = "local-files",
-                remotePath = target.absolutePath,
-                displayName = target.name,
-                versionId = "old",
-                modifiedAtEpochMillis = target.lastModified(),
-                etag = "stale-etag",
-                checksumSha256 = "stale",
-                sizeBytes = target.length(),
-                mimeType = "application/pdf",
-                updatedAtEpochMillis = System.currentTimeMillis(),
-            ),
-        )
-
-        repository.queueExport(
-            document = sampleDocument(),
-            request = ConnectorSaveRequest(
-                connectorAccountId = "local-files",
-                remotePath = target.absolutePath,
-                displayName = target.name,
-                exportMode = AnnotationExportMode.Editable,
-                destinationMode = SaveDestinationMode.SaveCopy,
-            ),
-        )
-
+        val target = File(context.cacheDir, "test-documents/conflict.pdf").apply { parentFile?.mkdirs(); writeText("existing") }
+        metadataDao.upsert(RemoteDocumentMetadataEntity("local-files::${target.absolutePath}", "local-files", target.absolutePath, target.name, "old", target.lastModified(), "stale-etag", "stale", target.length(), "application/pdf", "{}", null, System.currentTimeMillis()))
+        repository.queueExport(sampleDocument(), ConnectorSaveRequest("local-files", target.absolutePath, target.name, AnnotationExportMode.Editable, SaveDestinationMode.SaveCopy))
         val completed = repository.syncPendingTransfers()
         val job = repository.transferJobs().first()
-
         assertThat(completed).isEqualTo(0)
         assertThat(job.status).isEqualTo(TransferStatus.Failed)
         assertThat(job.lastError).contains("changed since last sync")
@@ -164,37 +124,12 @@ class DefaultConnectorRepositoryTest {
         val probe = ServerSocket(0)
         val port = probe.localPort
         probe.close()
-
-        enterpriseRepository.state = enterpriseRepository.state.copy(
-            adminPolicy = enterpriseRepository.state.adminPolicy.copy(
-                allowedCloudConnectors = listOf(
-                    com.aymanelbanhawy.editor.core.enterprise.CloudConnector.LocalFiles,
-                    com.aymanelbanhawy.editor.core.enterprise.CloudConnector.WebDav,
-                ),
-            ),
-        )
-        val account = repository.saveAccount(
-            ConnectorAccountDraft(
-                connectorType = com.aymanelbanhawy.editor.core.enterprise.CloudConnector.WebDav,
-                displayName = "Retry WebDAV",
-                baseUrl = "http://127.0.0.1:$port",
-            ),
-        )
-        repository.queueExport(
-            document = sampleDocument(),
-            request = ConnectorSaveRequest(
-                connectorAccountId = account.id,
-                remotePath = "/retry/document.pdf",
-                displayName = "document.pdf",
-                exportMode = AnnotationExportMode.Editable,
-                destinationMode = SaveDestinationMode.SaveCopy,
-            ),
-        )
-
+        enterpriseRepository.state = enterpriseRepository.state.copy(adminPolicy = enterpriseRepository.state.adminPolicy.copy(allowedCloudConnectors = listOf(CloudConnector.LocalFiles, CloudConnector.WebDav)))
+        val account = repository.saveAccount(ConnectorAccountDraft(CloudConnector.WebDav, "Retry WebDAV", "http://127.0.0.1:$port"))
+        repository.queueExport(sampleDocument(), ConnectorSaveRequest(account.id, "/retry/document.pdf", "document.pdf", AnnotationExportMode.Editable, SaveDestinationMode.SaveCopy))
         val firstAttempt = repository.syncPendingTransfers()
         assertThat(firstAttempt).isEqualTo(0)
         assertThat(repository.transferJobs().first().status).isEqualTo(TransferStatus.Failed)
-
         MiniWebDavServer(port).use { server ->
             server.start()
             val secondAttempt = repository.syncPendingTransfers()
@@ -206,19 +141,10 @@ class DefaultConnectorRepositoryTest {
     }
 
     private fun sampleDocument(): DocumentModel {
-        val file = File(context.cacheDir, "test-documents/source.pdf").apply {
-            parentFile?.mkdirs()
-            writeText("sample")
-        }
+        val file = File(context.cacheDir, "test-documents/source.pdf").apply { parentFile?.mkdirs(); writeText("sample") }
         return DocumentModel(
             sessionId = UUID.randomUUID().toString(),
-            documentRef = PdfDocumentRef(
-                uriString = file.toURI().toString(),
-                displayName = file.name,
-                sourceType = DocumentSourceType.File,
-                sourceKey = file.absolutePath,
-                workingCopyPath = file.absolutePath,
-            ),
+            documentRef = PdfDocumentRef(file.toURI().toString(), file.name, null, DocumentSourceType.File, file.absolutePath, file.absolutePath),
             pages = listOf(PageModel(index = 0)),
             security = SecurityDocumentModel(permissions = DocumentPermissionModel()),
         )
@@ -230,19 +156,15 @@ private class MiniWebDavServer(private val port: Int) : AutoCloseable {
     private lateinit var serverSocket: ServerSocket
     private var thread: Thread? = null
     val payloads: MutableMap<String, ByteArray> = ConcurrentHashMap()
-
     fun start() {
         serverSocket = ServerSocket(port)
         running.set(true)
         thread = Thread {
             while (running.get()) {
-                runCatching { serverSocket.accept() }
-                    .onSuccess { socket -> handle(socket) }
-                    .onFailure { if (running.get()) throw it }
+                runCatching { serverSocket.accept() }.onSuccess { socket -> handle(socket) }.onFailure { if (running.get()) throw it }
             }
         }.apply { isDaemon = true; start() }
     }
-
     private fun handle(socket: Socket) {
         socket.use { client ->
             val input = BufferedInputStream(client.getInputStream())
@@ -256,9 +178,7 @@ private class MiniWebDavServer(private val port: Int) : AutoCloseable {
                 val line = input.readHttpLine()
                 if (line.isBlank()) break
                 val separator = line.indexOf(':')
-                if (separator > 0) {
-                    headers[line.substring(0, separator).trim().lowercase()] = line.substring(separator + 1).trim()
-                }
+                if (separator > 0) headers[line.substring(0, separator).trim().lowercase()] = line.substring(separator + 1).trim()
             }
             val output = client.getOutputStream()
             when (method) {
@@ -282,43 +202,20 @@ private class MiniWebDavServer(private val port: Int) : AutoCloseable {
             output.flush()
         }
     }
-
-    override fun close() {
-        running.set(false)
-        runCatching { serverSocket.close() }
-        thread?.join(500)
-    }
+    override fun close() { running.set(false); runCatching { serverSocket.close() }; thread?.join(500) }
 }
 
 private fun InputStream.readHttpLine(): String {
     val builder = StringBuilder()
     while (true) {
         val value = read()
-        if (value == -1) break
-        if (value == '\n'.code) break
+        if (value == -1 || value == '\n'.code) break
         if (value != '\r'.code) builder.append(value.toChar())
     }
     return builder.toString()
 }
-
-private fun InputStream.readFully(target: ByteArray) {
-    var offset = 0
-    while (offset < target.size) {
-        val count = read(target, offset, target.size - offset)
-        if (count == -1) break
-        offset += count
-    }
-}
-
-private class PassthroughCipher : SecureFileCipher {
-    override fun encryptToFile(plainBytes: ByteArray, destination: File) {
-        destination.parentFile?.mkdirs()
-        destination.writeBytes(plainBytes)
-    }
-
-    override fun decryptFromFile(source: File): ByteArray = source.readBytes()
-}
-
+private fun InputStream.readFully(target: ByteArray) { var offset = 0; while (offset < target.size) { val count = read(target, offset, target.size - offset); if (count == -1) break; offset += count } }
+private class PassthroughCipher : SecureFileCipher { override fun encryptToFile(plainBytes: ByteArray, destination: File) { destination.parentFile?.mkdirs(); destination.writeBytes(plainBytes) }; override fun decryptFromFile(source: File): ByteArray = source.readBytes() }
 private class TestDocumentRepository(private val root: File) : DocumentRepository {
     override suspend fun open(request: com.aymanelbanhawy.editor.core.model.OpenDocumentRequest): DocumentModel = error("Not needed")
     override suspend fun importPages(requests: List<com.aymanelbanhawy.editor.core.model.OpenDocumentRequest>): List<PageModel> = emptyList()
@@ -326,32 +223,12 @@ private class TestDocumentRepository(private val root: File) : DocumentRepositor
     override suspend fun restoreDraft(sourceKey: String): DraftRestoreResult? = null
     override suspend fun clearDraft(sourceKey: String) = Unit
     override suspend fun save(document: DocumentModel, exportMode: AnnotationExportMode): DocumentModel = document
-    override suspend fun saveAs(document: DocumentModel, destination: File, exportMode: AnnotationExportMode): DocumentModel {
-        destination.parentFile?.mkdirs()
-        destination.writeText("export-${document.documentRef.displayName}-${exportMode.name}")
-        return document.copy(documentRef = document.documentRef.copy(uriString = destination.toURI().toString(), sourceKey = destination.absolutePath, workingCopyPath = destination.absolutePath))
-    }
+    override suspend fun saveAs(document: DocumentModel, destination: File, exportMode: AnnotationExportMode): DocumentModel { destination.parentFile?.mkdirs(); destination.writeText("export-${document.documentRef.displayName}-${exportMode.name}"); return document.copy(documentRef = document.documentRef.copy(uriString = destination.toURI().toString(), sourceKey = destination.absolutePath, workingCopyPath = destination.absolutePath)) }
     override suspend fun split(document: DocumentModel, request: com.aymanelbanhawy.editor.core.organize.SplitRequest, outputDirectory: File): List<File> = emptyList()
     override fun createAutosaveTempFile(sessionId: String): File = File(root, "$sessionId.json")
 }
-
 private class TestEnterpriseAdminRepository : EnterpriseAdminRepository {
-    var state: EnterpriseAdminStateModel = EnterpriseAdminStateModel(
-        authSession = AuthSessionModel(isSignedIn = true),
-        plan = LicensePlan.Enterprise,
-        privacySettings = PrivacySettingsModel(),
-        adminPolicy = AdminPolicyModel(
-            allowExternalSharing = true,
-            allowedCloudConnectors = listOf(
-                com.aymanelbanhawy.editor.core.enterprise.CloudConnector.LocalFiles,
-                com.aymanelbanhawy.editor.core.enterprise.CloudConnector.WebDav,
-                com.aymanelbanhawy.editor.core.enterprise.CloudConnector.DocumentProvider,
-            ),
-        ),
-        policySync = PolicySyncMetadataModel(),
-        tenantConfiguration = TenantConfigurationModel(),
-    )
-
+    var state: EnterpriseAdminStateModel = EnterpriseAdminStateModel(authSession = AuthSessionModel(isSignedIn = true), plan = LicensePlan.Enterprise, privacySettings = PrivacySettingsModel(), adminPolicy = AdminPolicyModel(allowExternalSharing = true, allowedCloudConnectors = listOf(CloudConnector.LocalFiles, CloudConnector.S3Compatible, CloudConnector.WebDav, CloudConnector.DocumentProvider)), policySync = PolicySyncMetadataModel(), tenantConfiguration = TenantConfigurationModel())
     override suspend fun loadState(): EnterpriseAdminStateModel = state
     override suspend fun saveState(state: EnterpriseAdminStateModel) { this.state = state }
     override suspend fun signInPersonal(displayName: String): EnterpriseAdminStateModel = state
@@ -365,12 +242,9 @@ private class TestEnterpriseAdminRepository : EnterpriseAdminRepository {
     override suspend fun flushTelemetry(): Int = 0
     override suspend fun diagnosticsBundle(destination: File, appSummary: Map<String, String>): File = destination
 }
-
 private class TestSecurityRepository : SecurityRepository {
     private val mutableLockState = MutableStateFlow(AppLockStateModel())
     override val appLockState: StateFlow<AppLockStateModel> = mutableLockState
-    val audits = mutableListOf<AuditTrailEventModel>()
-
     override suspend fun loadAppLockSettings(): AppLockSettingsModel = AppLockSettingsModel()
     override suspend fun updateAppLockSettings(enabled: Boolean, pin: String, biometricsEnabled: Boolean, timeoutSeconds: Int): AppLockSettingsModel = AppLockSettingsModel(enabled = enabled)
     override suspend fun lockApp(reason: AppLockReason) = Unit
@@ -380,11 +254,10 @@ private class TestSecurityRepository : SecurityRepository {
     override suspend fun persistDocumentSecurity(documentKey: String, security: SecurityDocumentModel) = Unit
     override suspend fun inspectDocument(document: DocumentModel) = error("Not needed")
     override fun evaluatePolicy(security: SecurityDocumentModel, action: RestrictedAction): PolicyDecision = PolicyDecision(true)
-    override suspend fun recordAudit(event: AuditTrailEventModel) { audits += event }
-    override suspend fun auditEvents(documentKey: String): List<AuditTrailEventModel> = audits.filter { it.documentKey == documentKey }
+    override suspend fun recordAudit(event: AuditTrailEventModel) = Unit
+    override suspend fun auditEvents(documentKey: String): List<AuditTrailEventModel> = emptyList()
     override suspend fun exportAuditTrail(documentKey: String, destination: File): File = destination
 }
-
 private class TestConnectorAccountDao : ConnectorAccountDao {
     private val entities = linkedMapOf<String, ConnectorAccountEntity>()
     override suspend fun upsert(entity: ConnectorAccountEntity) { entities[entity.id] = entity }
@@ -392,14 +265,12 @@ private class TestConnectorAccountDao : ConnectorAccountDao {
     override suspend fun get(id: String): ConnectorAccountEntity? = entities[id]
     override suspend fun deleteById(id: String) { entities.remove(id) }
 }
-
 private class TestRemoteDocumentMetadataDao : RemoteDocumentMetadataDao {
     private val entities = linkedMapOf<String, RemoteDocumentMetadataEntity>()
     override suspend fun upsert(entity: RemoteDocumentMetadataEntity) { entities[entity.documentKey] = entity }
     override suspend fun get(documentKey: String): RemoteDocumentMetadataEntity? = entities[documentKey]
     override suspend fun deleteByDocumentKey(documentKey: String) { entities.remove(documentKey) }
 }
-
 private class TestConnectorTransferJobDao : ConnectorTransferJobDao {
     private val entities = linkedMapOf<String, ConnectorTransferJobEntity>()
     override suspend fun upsert(entity: ConnectorTransferJobEntity) { entities[entity.id] = entity }
@@ -407,15 +278,12 @@ private class TestConnectorTransferJobDao : ConnectorTransferJobDao {
     override suspend fun pending(): List<ConnectorTransferJobEntity> = entities.values.filter { it.status in listOf("Pending", "Failed", "Paused") }.sortedBy { it.createdAtEpochMillis }
     override suspend fun all(): List<ConnectorTransferJobEntity> = entities.values.sortedByDescending { it.updatedAtEpochMillis }
     override suspend fun deleteById(id: String) { entities.remove(id) }
-    override suspend fun deleteCompletedBefore(thresholdEpochMillis: Long) {
-        entities.entries.removeIf { (_, value) -> value.status == "Completed" && value.updatedAtEpochMillis < thresholdEpochMillis }
-    }
+    override suspend fun deleteCompletedBefore(thresholdEpochMillis: Long) { entities.entries.removeIf { it.value.status == "Completed" && it.value.updatedAtEpochMillis < thresholdEpochMillis } }
 }
-
-
 private class TestContext(root: File) : ContextWrapper(Application()) {
     private val cache = File(root, "cache").apply { mkdirs() }
     private val files = File(root, "files").apply { mkdirs() }
     override fun getCacheDir(): File = cache
     override fun getFilesDir(): File = files
 }
+

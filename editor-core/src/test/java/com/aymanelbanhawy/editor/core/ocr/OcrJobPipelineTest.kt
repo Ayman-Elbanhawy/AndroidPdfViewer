@@ -9,15 +9,23 @@ import com.aymanelbanhawy.editor.core.data.OcrJobEntity
 import com.aymanelbanhawy.editor.core.data.OcrSettingsDao
 import com.aymanelbanhawy.editor.core.data.OcrSettingsEntity
 import com.aymanelbanhawy.editor.core.model.DocumentModel
+import com.aymanelbanhawy.editor.core.model.DocumentSourceType
 import com.aymanelbanhawy.editor.core.model.NormalizedRect
+import com.aymanelbanhawy.editor.core.model.PageModel
 import com.aymanelbanhawy.editor.core.model.PdfDocumentRef
 import com.aymanelbanhawy.editor.core.search.DocumentSearchService
 import com.aymanelbanhawy.editor.core.search.ExtractedTextBlock
 import com.aymanelbanhawy.editor.core.search.IndexedPageContent
 import com.aymanelbanhawy.editor.core.search.OutlineItem
+import com.aymanelbanhawy.editor.core.search.PdfBoxTextExtractionService
 import com.aymanelbanhawy.editor.core.search.SearchResultSet
 import com.aymanelbanhawy.editor.core.search.TextSelectionPayload
 import com.google.common.truth.Truth.assertThat
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.pdmodel.PDPage
+import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
+import java.io.File
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
@@ -26,7 +34,6 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
-import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 class OcrJobPipelineTest {
@@ -36,6 +43,7 @@ class OcrJobPipelineTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
+        PDFBoxResourceLoader.init(context)
         WorkManagerTestInitHelper.initializeTestWorkManager(
             context,
             Configuration.Builder().setMinimumLoggingLevel(android.util.Log.DEBUG).build(),
@@ -69,32 +77,7 @@ class OcrJobPipelineTest {
         )
         dao.upsert(job)
 
-        pipeline.complete(
-            job = job,
-            settings = settings,
-            result = OcrEngineResult(
-                page = OcrPageContent(
-                    pageIndex = 0,
-                    text = "Invoice total due",
-                    blocks = listOf(
-                        OcrTextBlockModel(
-                            text = "Invoice total due",
-                            bounds = NormalizedRect(0.1f, 0.1f, 0.8f, 0.2f),
-                            lines = listOf(
-                                OcrTextLineModel(
-                                    text = "Invoice total due",
-                                    bounds = NormalizedRect(0.1f, 0.1f, 0.8f, 0.2f),
-                                    elements = listOf(OcrTextElementModel("Invoice", NormalizedRect(0.1f, 0.1f, 0.3f, 0.2f))),
-                                ),
-                            ),
-                        ),
-                    ),
-                    imageWidth = 1000,
-                    imageHeight = 1600,
-                ),
-                preprocessedImagePath = File(tempDir, "processed.png").absolutePath,
-            ),
-        )
+        pipeline.complete(job = job, settings = settings, result = sampleResult(tempDir))
 
         val stored = dao.job("doc::0")
         assertThat(stored?.status).isEqualTo(OcrJobStatus.Completed.name)
@@ -103,7 +86,81 @@ class OcrJobPipelineTest {
     }
 
     @Test
-    fun failMovesRetryableJobsToRetryScheduled() = runTest {
+    fun completeEmbedsSearchablePdfText() = runTest {
+        val dao = FakeOcrJobDao()
+        val settingsDao = FakeOcrSettingsDao()
+        val searchService = RecordingSearchService()
+        val tempDir = createTempDir(prefix = "ocr-searchable-pdf")
+        val pdfFile = File(tempDir, "doc.pdf")
+        PDDocument().use { document ->
+            document.addPage(PDPage(PDRectangle.LETTER))
+            document.save(pdfFile)
+        }
+        val pipeline = OcrJobPipeline(
+            ocrJobDao = dao,
+            ocrSettingsDao = settingsDao,
+            searchService = searchService,
+            workManager = androidx.work.WorkManager.getInstance(context),
+            json = json,
+            ocrSessionStore = OcrSessionStore(json),
+            ocrPdfWriter = PdfBoxOcrPdfWriter(),
+        )
+        val job = OcrJobEntity(
+            id = "doc::0",
+            documentKey = pdfFile.absolutePath,
+            pageIndex = 0,
+            imagePath = File(tempDir, "page.png").absolutePath,
+            status = OcrJobStatus.Running.name,
+            createdAtEpochMillis = 1L,
+            updatedAtEpochMillis = 1L,
+        )
+        dao.upsert(job)
+
+        pipeline.complete(job = job, settings = OcrSettingsModel(), result = sampleResult(tempDir))
+
+        val extracted = PdfBoxTextExtractionService().extract(
+            PdfDocumentRef(
+                uriString = pdfFile.toURI().toString(),
+                displayName = pdfFile.name,
+                sourceType = DocumentSourceType.File,
+                sourceKey = pdfFile.absolutePath,
+                workingCopyPath = pdfFile.absolutePath,
+            ),
+        )
+        assertThat(extracted.first().pageText).contains("Invoice total due")
+    }
+
+    @Test
+    fun pauseAndResumeUpdateState() = runTest {
+        val dao = FakeOcrJobDao()
+        val pipeline = OcrJobPipeline(
+            ocrJobDao = dao,
+            ocrSettingsDao = FakeOcrSettingsDao(),
+            searchService = RecordingSearchService(),
+            workManager = androidx.work.WorkManager.getInstance(context),
+            json = json,
+            ocrSessionStore = OcrSessionStore(json),
+        )
+        val pending = OcrJobEntity(
+            id = "doc::1",
+            documentKey = "/tmp/doc.pdf",
+            pageIndex = 1,
+            imagePath = "/tmp/one.png",
+            status = OcrJobStatus.Pending.name,
+            createdAtEpochMillis = 1L,
+            updatedAtEpochMillis = 1L,
+        )
+        dao.upsert(pending)
+
+        pipeline.pause("/tmp/doc.pdf", 1)
+        assertThat(dao.job("doc::1")?.status).isEqualTo(OcrJobStatus.Paused.name)
+
+        pipeline.resume("/tmp/doc.pdf", 1)
+        assertThat(dao.job("doc::1")?.status).isEqualTo(OcrJobStatus.Pending.name)
+    }
+
+    @Test
+    fun failMarksJobFailedWhenRetryIsNotAllowed() = runTest {
         val dao = FakeOcrJobDao()
         val pipeline = OcrJobPipeline(
             ocrJobDao = dao,
@@ -119,7 +176,7 @@ class OcrJobPipelineTest {
             pageIndex = 1,
             imagePath = "/tmp/one.png",
             status = OcrJobStatus.Running.name,
-            attemptCount = 1,
+            attemptCount = 3,
             maxAttempts = 3,
             createdAtEpochMillis = 1L,
             updatedAtEpochMillis = 1L,
@@ -128,7 +185,32 @@ class OcrJobPipelineTest {
 
         pipeline.fail(job, OcrEngineDiagnostics(code = "model-unavailable", message = "Model unavailable", retryable = true))
 
-        assertThat(dao.job("doc::1")?.status).isEqualTo(OcrJobStatus.RetryScheduled.name)
+        assertThat(dao.job("doc::1")?.status).isEqualTo(OcrJobStatus.Failed.name)
+    }
+
+    private fun sampleResult(tempDir: File): OcrEngineResult {
+        return OcrEngineResult(
+            page = OcrPageContent(
+                pageIndex = 0,
+                text = "Invoice total due",
+                blocks = listOf(
+                    OcrTextBlockModel(
+                        text = "Invoice total due",
+                        bounds = NormalizedRect(0.1f, 0.1f, 0.8f, 0.2f),
+                        lines = listOf(
+                            OcrTextLineModel(
+                                text = "Invoice total due",
+                                bounds = NormalizedRect(0.1f, 0.1f, 0.8f, 0.2f),
+                                elements = listOf(OcrTextElementModel("Invoice", NormalizedRect(0.1f, 0.1f, 0.3f, 0.2f))),
+                            ),
+                        ),
+                    ),
+                ),
+                imageWidth = 1000,
+                imageHeight = 1600,
+            ),
+            preprocessedImagePath = File(tempDir, "processed.png").absolutePath,
+        )
     }
 }
 
@@ -189,3 +271,4 @@ private class RecordingSearchService : DocumentSearchService {
         lastPageText = pageText
     }
 }
+

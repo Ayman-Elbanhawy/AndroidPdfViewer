@@ -98,6 +98,8 @@ data class TenantPolicyHooksModel(
     val disableCopy: Boolean = false,
     val disableShare: Boolean = false,
     val disableExport: Boolean = false,
+    val forcedWatermarkText: String = "",
+    val forceMetadataScrub: Boolean = false,
 )
 
 @Serializable
@@ -152,6 +154,8 @@ data class InspectionReportModel(
     val hiddenAnnotationCount: Int = 0,
     val embeddedContentFlags: List<String> = emptyList(),
     val redactionCoverageSummary: String = "",
+    val protectionFlags: List<String> = emptyList(),
+    val signatureStatusSummary: Map<String, String> = emptyMap(),
 )
 
 @Serializable

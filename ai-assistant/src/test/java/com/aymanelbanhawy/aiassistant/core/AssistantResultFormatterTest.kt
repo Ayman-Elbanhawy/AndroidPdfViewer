@@ -29,13 +29,15 @@ class AssistantResultFormatterTest {
         val formatted = AssistantResultFormatter.format(result)
 
         assertThat(formatted).contains("Ask PDF")
-        assertThat(formatted).contains("[Page 3]")
+        assertThat(formatted).contains("Citations:")
         assertThat(formatted).contains("Quoted text")
     }
 
     @Test
     fun citationAnchor_usesPageAndRegionLabels() {
         val anchor = AssistantResultFormatter.citationAnchor(
+            documentKey = "doc-1",
+            documentTitle = "Example.pdf",
             pageIndex = 0,
             bounds = NormalizedRect(0.15f, 0.25f, 0.55f, 0.7f),
             quote = "Anchor quote",
@@ -46,3 +48,5 @@ class AssistantResultFormatterTest {
         assertThat(anchor.regionLabel).contains("70%")
     }
 }
+
+

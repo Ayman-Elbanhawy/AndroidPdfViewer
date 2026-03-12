@@ -40,9 +40,12 @@ class ProviderRuntimeErrorHandlingTest {
                 override suspend fun signInPersonal(displayName: String) = EnterpriseAdminStateModel()
                 override suspend fun signInEnterprise(email: String, tenant: com.aymanelbanhawy.editor.core.enterprise.TenantConfigurationModel) = EnterpriseAdminStateModel()
                 override suspend fun signOut() = EnterpriseAdminStateModel()
+                override suspend fun refreshRemoteState(force: Boolean) = EnterpriseAdminStateModel()
+                override suspend fun refreshSessionIfNeeded() = EnterpriseAdminStateModel()
                 override suspend fun resolveEntitlements(state: EnterpriseAdminStateModel) = EntitlementStateModel(LicensePlan.Free, emptySet())
                 override suspend fun queueTelemetry(event: TelemetryEventModel) = Unit
                 override suspend fun pendingTelemetry(): List<TelemetryEventModel> = emptyList()
+                override suspend fun flushTelemetry(): Int = 0
                 override suspend fun diagnosticsBundle(destination: java.io.File, appSummary: Map<String, String>) = destination
             },
             securityRepository = object : SecurityRepository {

@@ -7,6 +7,7 @@ import androidx.benchmark.junit4.measureRepeated
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.aymanelbanhawy.editor.core.EditorCoreContainer
+import com.aymanelbanhawy.editor.core.model.AnnotationExportMode
 import com.aymanelbanhawy.editor.core.model.OpenDocumentRequest
 import java.io.File
 import kotlinx.coroutines.runBlocking
@@ -23,10 +24,7 @@ class LargeDocumentOpenBenchmarkTest {
     fun benchmarkDocumentOpen() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val container = EditorCoreContainer(context)
-        val pdf = File(context.cacheDir, "benchmark-large.pdf")
-        if (!pdf.exists()) {
-            createLargePdf(pdf)
-        }
+        val pdf = ensureLargePdf(context.cacheDir)
 
         benchmarkRule.measureRepeated {
             runBlocking {
@@ -40,6 +38,57 @@ class LargeDocumentOpenBenchmarkTest {
         }
     }
 
+    @Test
+    fun benchmarkThumbnailGeneration() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val container = EditorCoreContainer(context)
+        val pdf = ensureLargePdf(context.cacheDir)
+        val opened = runBlocking {
+            container.documentRepository.open(
+                OpenDocumentRequest.FromFile(
+                    absolutePath = pdf.absolutePath,
+                    displayNameOverride = pdf.name,
+                ),
+            )
+        }
+
+        benchmarkRule.measureRepeated {
+            runBlocking {
+                container.pageThumbnailRepository.thumbnailsFor(opened, widthPx = 180)
+            }
+        }
+    }
+
+    @Test
+    fun benchmarkSaveExport() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val container = EditorCoreContainer(context)
+        val pdf = ensureLargePdf(context.cacheDir)
+        val opened = runBlocking {
+            container.documentRepository.open(
+                OpenDocumentRequest.FromFile(
+                    absolutePath = pdf.absolutePath,
+                    displayNameOverride = pdf.name,
+                ),
+            )
+        }
+        val output = File(context.cacheDir, "benchmark-large-export.pdf")
+
+        benchmarkRule.measureRepeated {
+            runBlocking {
+                container.documentRepository.saveAs(opened, output, AnnotationExportMode.Editable)
+            }
+        }
+    }
+
+    private fun ensureLargePdf(cacheDir: File): File {
+        val pdf = File(cacheDir, "benchmark-large.pdf")
+        if (!pdf.exists()) {
+            createLargePdf(pdf)
+        }
+        return pdf
+    }
+
     private fun createLargePdf(destination: File) {
         val paint = Paint().apply { textSize = 14f }
         val document = PdfDocument()
@@ -48,6 +97,7 @@ class LargeDocumentOpenBenchmarkTest {
                 val pageInfo = PdfDocument.PageInfo.Builder(612, 792, index + 1).create()
                 val page = document.startPage(pageInfo)
                 page.canvas.drawText("Benchmark page ${index + 1}", 48f, 96f, paint)
+                page.canvas.drawText("This page exists to validate open, thumbnail, indexing, and save throughput.", 48f, 132f, paint)
                 document.finishPage(page)
             }
             destination.outputStream().use { output -> document.writeTo(output) }

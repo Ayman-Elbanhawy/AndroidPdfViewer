@@ -10,6 +10,7 @@ enum class OcrJobStatus {
     Pending,
     RetryScheduled,
     Running,
+    Paused,
     Completed,
     Failed,
 }
@@ -160,6 +161,12 @@ data class OcrJobSummary(
 ) {
     val canRetry: Boolean
         get() = status == OcrJobStatus.Failed || status == OcrJobStatus.Completed
+
+    val canPause: Boolean
+        get() = status == OcrJobStatus.Pending || status == OcrJobStatus.RetryScheduled || status == OcrJobStatus.Running
+
+    val canResume: Boolean
+        get() = status == OcrJobStatus.Paused || status == OcrJobStatus.Failed
 }
 
 interface OcrEngine {

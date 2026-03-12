@@ -13,6 +13,8 @@ data class ConnectorAccountEntity(
     @ColumnInfo(name = "credential_type") val credentialType: String,
     @ColumnInfo(name = "username") val username: String,
     @ColumnInfo(name = "secret_alias") val secretAlias: String?,
+    @ColumnInfo(name = "capabilities_json") val capabilitiesJson: String = "[]",
+    @ColumnInfo(name = "configuration_json") val configurationJson: String = "{}",
     @ColumnInfo(name = "supports_open") val supportsOpen: Boolean,
     @ColumnInfo(name = "supports_save") val supportsSave: Boolean,
     @ColumnInfo(name = "supports_share") val supportsShare: Boolean,

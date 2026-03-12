@@ -11,6 +11,7 @@ import com.aymanelbanhawy.editor.core.runtime.RuntimeLogLevel
 import com.aymanelbanhawy.editor.core.search.DocumentSearchService
 import com.aymanelbanhawy.editor.core.search.ExtractedTextBlock
 import com.aymanelbanhawy.editor.core.work.OcrWorker
+import java.io.File
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.builtins.ListSerializer
@@ -23,6 +24,7 @@ class OcrJobPipeline(
     private val workManager: WorkManager,
     private val json: Json,
     private val ocrSessionStore: OcrSessionStore,
+    private val ocrPdfWriter: OcrPdfWriter? = null,
     private val diagnosticsRepository: RuntimeDiagnosticsRepository? = null,
 ) {
     suspend fun enqueue(documentKey: String, jobs: List<QueuedOcrPage>, settings: OcrSettingsModel) {
@@ -119,6 +121,9 @@ class OcrJobPipeline(
     }
 
     suspend fun complete(job: OcrJobEntity, result: OcrEngineResult, settings: OcrSettingsModel) {
+        val payload = ocrSessionStore.mergePage(job.documentKey, settings, result.page)
+        ocrPdfWriter?.rewriteSearchableDocument(File(job.documentKey), payload)
+        ocrSessionStore.persistPayload(payload)
         val now = System.currentTimeMillis()
         val blocks = result.blocks
         ocrJobDao.upsert(
@@ -137,7 +142,6 @@ class OcrJobPipeline(
             ),
         )
         searchService.attachOcrResult(job.documentKey, job.pageIndex, result.pageText, blocks)
-        ocrSessionStore.persistPage(job.documentKey, settings, result.page)
     }
 
     suspend fun fail(job: OcrJobEntity, diagnostics: OcrEngineDiagnostics) {
@@ -162,6 +166,47 @@ class OcrJobPipeline(
         if (canRetry) {
             OcrWorker.enqueue(workManager, job.documentKey)
         }
+    }
+
+    suspend fun pause(documentKey: String, pageIndex: Int? = null) {
+        val jobs = ocrJobDao.jobsForDocument(documentKey).filter {
+            (pageIndex == null || it.pageIndex == pageIndex) && it.status in setOf(
+                OcrJobStatus.Pending.name,
+                OcrJobStatus.RetryScheduled.name,
+                OcrJobStatus.Running.name,
+            )
+        }
+        if (jobs.isEmpty()) return
+        val now = System.currentTimeMillis()
+        ocrJobDao.upsertAll(
+            jobs.map {
+                it.copy(
+                    status = OcrJobStatus.Paused.name,
+                    updatedAtEpochMillis = now,
+                )
+            },
+        )
+    }
+
+    suspend fun resume(documentKey: String, pageIndex: Int? = null) {
+        val settings = loadSettings()
+        val jobs = ocrJobDao.jobsForDocument(documentKey)
+            .filter { pageIndex == null || it.pageIndex == pageIndex }
+            .filter { it.status == OcrJobStatus.Paused.name || it.status == OcrJobStatus.Failed.name }
+            .map {
+                it.copy(
+                    status = OcrJobStatus.Pending.name,
+                    progressPercent = 0,
+                    maxAttempts = settings.maxRetryCount.coerceAtLeast(1),
+                    diagnosticsJson = null,
+                    errorMessage = null,
+                    completedAtEpochMillis = null,
+                    updatedAtEpochMillis = System.currentTimeMillis(),
+                )
+            }
+        if (jobs.isEmpty()) return
+        ocrJobDao.upsertAll(jobs)
+        OcrWorker.enqueue(workManager, documentKey)
     }
 
     suspend fun rerun(documentKey: String, pageIndex: Int? = null) {

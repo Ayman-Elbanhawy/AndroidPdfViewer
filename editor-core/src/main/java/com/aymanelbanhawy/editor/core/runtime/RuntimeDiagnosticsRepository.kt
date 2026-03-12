@@ -8,6 +8,7 @@ import com.aymanelbanhawy.editor.core.data.OcrJobDao
 import com.aymanelbanhawy.editor.core.data.RuntimeBreadcrumbDao
 import com.aymanelbanhawy.editor.core.data.RuntimeBreadcrumbEntity
 import com.aymanelbanhawy.editor.core.data.SyncQueueDao
+import com.aymanelbanhawy.editor.core.migration.AppMigrationReport
 import com.aymanelbanhawy.editor.core.model.DocumentModel
 import com.aymanelbanhawy.editor.core.ocr.OcrJobStatus
 import java.io.File
@@ -154,6 +155,14 @@ class DefaultRuntimeDiagnosticsRepository(
                 pendingSyncOperations = syncOps.size,
                 connectorTransferJobs = allConnectorJobs.count { it.status != "Completed" },
             ),
+            migration = loadMigrationDiagnostics(),
+            connectors = ConnectorDiagnosticsModel(
+                configuredAccountCount = connectorAccounts.size,
+                activeTransferCount = allConnectorJobs.count { it.status == "Running" || it.status == "Pending" || it.status == "Paused" },
+                failedTransferCount = allConnectorJobs.count { it.status == "Failed" },
+                enterpriseManagedCount = connectorAccounts.count { it.isEnterpriseManaged },
+                supportsResumableTransferCount = connectorAccounts.count { it.supportsResumableTransfer },
+            ),
             providerHealth = buildList {
                 addAll(providerHealth.values)
                 connectorAccounts.forEach { account ->
@@ -169,6 +178,16 @@ class DefaultRuntimeDiagnosticsRepository(
             }.distinctBy { it.name },
             recentBreadcrumbs = recent,
             recentFailures = failures,
+            failureSummaries = failures
+                .groupBy { it.category }
+                .map { (category, events) ->
+                    FailureSummaryModel(
+                        category = category,
+                        count = events.size,
+                        latestMessage = events.maxByOrNull { it.createdAtEpochMillis }?.message.orEmpty(),
+                    )
+                }
+                .sortedByDescending { it.count },
         )
     }
 
@@ -233,6 +252,23 @@ class DefaultRuntimeDiagnosticsRepository(
         )
     }
 
+    private fun loadMigrationDiagnostics(): MigrationDiagnosticsModel {
+        val reportFile = File(File(context.filesDir, "migration-reports"), "latest-app-migration.json")
+        if (!reportFile.exists()) return MigrationDiagnosticsModel()
+        val report = runCatching {
+            json.decodeFromString(AppMigrationReport.serializer(), reportFile.readText())
+        }.getOrNull() ?: return MigrationDiagnosticsModel(reportPath = reportFile.absolutePath, notice = "Migration report is unreadable.")
+        return MigrationDiagnosticsModel(
+            completedAtEpochMillis = report.core.completedAtEpochMillis,
+            successCount = report.core.successCount,
+            failureCount = report.core.failureCount,
+            compatibilityModeUsed = report.core.compatibilityModeUsed,
+            aiStateNormalizedCount = report.aiStateNormalizedCount,
+            notice = report.core.notice ?: report.aiStateMessage.takeIf { it.isNotBlank() },
+            reportPath = reportFile.absolutePath,
+        )
+    }
+
     private fun isJsonFileHealthy(file: File): Boolean {
         return runCatching {
             val text = file.readText()
@@ -274,7 +310,3 @@ class DefaultRuntimeDiagnosticsRepository(
         private val MapSerializer = kotlinx.serialization.builtins.MapSerializer(String.serializer(), String.serializer())
     }
 }
-
-
-
-

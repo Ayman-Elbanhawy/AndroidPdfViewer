@@ -14,13 +14,20 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class CriticalWorkflowSmokeTest {
     @Test
-    fun openSaveAndDiagnosticsFlow() {
+    fun openSaveSearchThumbnailAndDiagnosticsFlow() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val container = EditorCoreContainer(context)
         val request = OpenDocumentRequest.FromAsset(assetName = "sample.pdf", displayName = "sample.pdf")
 
         val opened = runBlocking { container.documentRepository.open(request) }
         assertThat(opened.pageCount).isGreaterThan(0)
+
+        val thumbnails = runBlocking { container.pageThumbnailRepository.thumbnailsFor(opened, widthPx = 180) }
+        assertThat(thumbnails).isNotEmpty()
+        assertThat(File(thumbnails.first().imagePath).exists()).isTrue()
+
+        val indexed = runBlocking { container.documentSearchService.reindex(opened) }
+        assertThat(indexed.hits.size).isAtLeast(0)
 
         val output = File(context.cacheDir, "smoke-output.pdf")
         val saved = runBlocking {
@@ -31,6 +38,6 @@ class CriticalWorkflowSmokeTest {
 
         val diagnostics = runBlocking { container.runtimeDiagnosticsRepository.captureSnapshot(saved) }
         assertThat(diagnostics.lastSaveElapsedMillis).isAtLeast(0L)
+        assertThat(diagnostics.cache.thumbnailFileCount).isGreaterThan(0)
     }
 }
-

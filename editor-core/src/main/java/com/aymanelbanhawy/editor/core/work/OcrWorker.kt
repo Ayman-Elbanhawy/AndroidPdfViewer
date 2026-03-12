@@ -14,12 +14,14 @@ import com.aymanelbanhawy.editor.core.ocr.OcrEngineException
 import com.aymanelbanhawy.editor.core.ocr.OcrJobPipeline
 import com.aymanelbanhawy.editor.core.ocr.OcrPageRequest
 import com.aymanelbanhawy.editor.core.ocr.OcrSessionStore
+import com.aymanelbanhawy.editor.core.ocr.PdfBoxOcrPdfWriter
 import com.aymanelbanhawy.editor.core.runtime.DefaultRuntimeDiagnosticsRepository
 import com.aymanelbanhawy.editor.core.runtime.RuntimeEventCategory
 import com.aymanelbanhawy.editor.core.runtime.RuntimeLogLevel
 import com.aymanelbanhawy.editor.core.search.DefaultDocumentSearchService
 import com.aymanelbanhawy.editor.core.search.PdfBoxTextExtractionService
 import com.aymanelbanhawy.editor.core.search.RoomSearchIndexStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.Json
 import kotlin.coroutines.coroutineContext
@@ -54,6 +56,7 @@ class OcrWorker(
                 workManager = WorkManager.getInstance(applicationContext),
                 json = json,
                 ocrSessionStore = ocrSessionStore,
+                ocrPdfWriter = PdfBoxOcrPdfWriter(),
                 diagnosticsRepository = diagnostics,
             )
             val engine = MlKitOcrEngine(applicationContext)
@@ -63,7 +66,10 @@ class OcrWorker(
             var shouldRetry = false
             jobs.forEach { job ->
                 coroutineContext.ensureActive()
-                if (isStopped) return Result.retry()
+                if (isStopped) {
+                    pipeline.pause(documentKey)
+                    return Result.retry()
+                }
                 val running = pipeline.markRunning(job)
                 runCatching {
                     pipeline.updateProgress(running, 20)
@@ -78,6 +84,11 @@ class OcrWorker(
                     pipeline.updateProgress(running, 85, result.preprocessedImagePath)
                     pipeline.complete(running, result, settings)
                 }.onFailure { error ->
+                    if (error is CancellationException || isStopped) {
+                        pipeline.pause(documentKey, running.pageIndex)
+                        shouldRetry = true
+                        return@onFailure
+                    }
                     val diagnosticsPayload = when (error) {
                         is OcrEngineException -> error.diagnostics
                         else -> OcrEngineDiagnostics(
@@ -92,6 +103,8 @@ class OcrWorker(
             }
             diagnostics.recordBreadcrumb(RuntimeEventCategory.Ocr, RuntimeLogLevel.Info, "ocr_worker_complete", "OCR worker processed ${jobs.size} pages.", mapOf("documentKey" to documentKey))
             if (shouldRetry) Result.retry() else Result.success()
+        } catch (_: CancellationException) {
+            Result.retry()
         } catch (_: Throwable) {
             Result.retry()
         } finally {

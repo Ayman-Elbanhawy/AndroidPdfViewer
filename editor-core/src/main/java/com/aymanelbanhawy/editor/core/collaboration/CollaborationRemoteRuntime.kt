@@ -1,4 +1,4 @@
-﻿package com.aymanelbanhawy.editor.core.collaboration
+package com.aymanelbanhawy.editor.core.collaboration
 
 import android.content.Context
 import com.aymanelbanhawy.editor.core.enterprise.AuthenticationMode
@@ -15,10 +15,10 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 
 class CollaborationCredentialStore(
@@ -70,19 +70,17 @@ open class CollaborationRemoteRegistry(
     open suspend fun select(): CollaborationRemoteDataSource {
         val state = enterpriseAdminRepository.loadState()
         enforcePolicy(state)
-        return when (state.tenantConfiguration.collaboration.backendMode) {
+        val collaboration = state.tenantConfiguration.collaboration
+        val effectiveMode = resolveEffectiveMode(collaboration.backendMode, collaboration.baseUrl)
+        return when (effectiveMode) {
             CollaborationBackendMode.Disabled -> throw disabledError()
-            CollaborationBackendMode.LocalEmulator -> LocalEmulatorCollaborationRemoteDataSource(
-                rootDir = File(context.filesDir, "collaboration-emulator"),
-                json = json,
-            )
             CollaborationBackendMode.RemoteHttp -> HttpCollaborationRemoteDataSource(
                 json = json,
-                baseUrl = state.tenantConfiguration.collaboration.baseUrl,
-                apiPath = state.tenantConfiguration.collaboration.apiPath,
+                baseUrl = collaboration.baseUrl,
+                apiPath = collaboration.apiPath,
                 accessTokenProvider = {
                     val authSession = state.authSession
-                    if (state.tenantConfiguration.collaboration.requireEnterpriseAuth && !authSession.isSignedIn) {
+                    if (collaboration.requireEnterpriseAuth && !authSession.isSignedIn) {
                         throw CollaborationRemoteException(
                             RemoteErrorMetadata(
                                 code = RemoteErrorCode.Unauthorized,
@@ -93,10 +91,17 @@ open class CollaborationRemoteRegistry(
                     }
                     credentialStore.load(authSession.collaborationCredentialAlias)
                 },
-                connectTimeoutMillis = state.tenantConfiguration.collaboration.connectTimeoutMillis.toInt(),
-                readTimeoutMillis = state.tenantConfiguration.collaboration.readTimeoutMillis.toInt(),
-                requestTimeoutMillis = state.tenantConfiguration.collaboration.requestTimeoutMillis,
-                retryCount = state.tenantConfiguration.collaboration.retryCount,
+                connectTimeoutMillis = collaboration.connectTimeoutMillis.toInt(),
+                readTimeoutMillis = collaboration.readTimeoutMillis.toInt(),
+                requestTimeoutMillis = collaboration.requestTimeoutMillis,
+                retryCount = collaboration.retryCount,
+            )
+            CollaborationBackendMode.LocalEmulator -> throw CollaborationRemoteException(
+                RemoteErrorMetadata(
+                    code = RemoteErrorCode.InvalidRequest,
+                    message = "Legacy local-emulator collaboration mode is no longer available in production. Configure a collaboration service endpoint.",
+                    retryable = false,
+                ),
             )
         }
     }
@@ -105,7 +110,11 @@ open class CollaborationRemoteRegistry(
         if (!state.adminPolicy.allowCollaborationSync) {
             throw disabledError()
         }
-        if (state.tenantConfiguration.collaboration.backendMode == CollaborationBackendMode.RemoteHttp) {
+        val effectiveMode = resolveEffectiveMode(
+            state.tenantConfiguration.collaboration.backendMode,
+            state.tenantConfiguration.collaboration.baseUrl,
+        )
+        if (effectiveMode == CollaborationBackendMode.RemoteHttp) {
             if (!state.adminPolicy.allowExternalSharing && state.adminPolicy.collaborationScope.name == "ExternalGuests") {
                 throw CollaborationRemoteException(
                     RemoteErrorMetadata(
@@ -124,6 +133,23 @@ open class CollaborationRemoteRegistry(
                     ),
                 )
             }
+            if (state.tenantConfiguration.collaboration.baseUrl.isBlank()) {
+                throw CollaborationRemoteException(
+                    RemoteErrorMetadata(
+                        code = RemoteErrorCode.InvalidRequest,
+                        message = "A collaboration service endpoint must be configured before remote review can sync.",
+                        retryable = false,
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun resolveEffectiveMode(mode: CollaborationBackendMode, baseUrl: String): CollaborationBackendMode {
+        return when {
+            mode == CollaborationBackendMode.Disabled -> CollaborationBackendMode.Disabled
+            mode == CollaborationBackendMode.LocalEmulator && baseUrl.isNotBlank() -> CollaborationBackendMode.RemoteHttp
+            else -> mode
         }
     }
 
@@ -208,7 +234,7 @@ class HttpCollaborationRemoteDataSource(
                         val responseBody = runCatching {
                             (if (code >= 400) connection.errorStream else connection.inputStream)?.bufferedReader()?.use { it.readText() }
                         }.getOrNull()
-                        HttpResponse(code = code, body = responseBody, headers = connection.headerFields.filterKeys { it != null })
+                        HttpResponse(code = code, body = responseBody)
                     }
                 }.also { response ->
                     if (!response.isRetryable()) return response
@@ -219,7 +245,7 @@ class HttpCollaborationRemoteDataSource(
                 if (!throwable.isRetryableNetwork() || attempt >= retryCount) break
             }
             attempt += 1
-            withContext(Dispatchers.IO) { Thread.sleep((1000L shl attempt.coerceAtMost(4)).coerceAtMost(8_000L)) }
+            delay((1000L shl attempt.coerceAtMost(4)).coerceAtMost(8_000L))
         }
         throw when (val error = lastError) {
             is CollaborationRemoteException -> error
@@ -281,220 +307,12 @@ class HttpCollaborationRemoteDataSource(
     private data class HttpResponse(
         val code: Int,
         val body: String?,
-        val headers: Map<String, List<String>>,
     ) {
         fun isRetryable(): Boolean = code == 408 || code == 429 || code >= 500
     }
 }
 
-class LocalEmulatorCollaborationRemoteDataSource(
-    private val rootDir: File,
-    private val json: Json,
-) : CollaborationRemoteDataSource {
-
-    private val stateFile = File(rootDir, "collaboration-state.json")
-
-    init {
-        rootDir.mkdirs()
-    }
-
-    override suspend fun healthCheck(): RemoteServiceHealth = withContext(Dispatchers.IO) {
-        RemoteServiceHealth(
-            isHealthy = true,
-            serviceName = "Local Collaboration Emulator",
-            serverTimestampEpochMillis = System.currentTimeMillis(),
-            supportsPagination = true,
-            supportsIdempotency = true,
-        )
-    }
-
-    override suspend fun pull(request: CollaborationPullRequest): CollaborationRemoteSnapshot = withContext(Dispatchers.IO) {
-        val state = readState()
-        CollaborationRemoteSnapshot(
-            shareLinks = paginate(
-                state.shareLinks.filter { it.documentKey == request.documentKey }.sortedByDescending { it.createdAtEpochMillis },
-                request.shareLinksPageToken,
-                request.pageSize,
-            ),
-            reviewThreads = paginate(
-                state.reviewThreads.filter { it.documentKey == request.documentKey }.sortedByDescending { it.modifiedAtEpochMillis },
-                request.reviewThreadsPageToken,
-                request.pageSize,
-            ),
-            activityEvents = paginate(
-                state.activityEvents.filter { it.documentKey == request.documentKey }.sortedByDescending { it.createdAtEpochMillis },
-                request.activityPageToken,
-                request.pageSize,
-            ),
-            versionSnapshots = paginate(
-                state.versionSnapshots.filter { it.documentKey == request.documentKey }.sortedByDescending { it.createdAtEpochMillis },
-                request.snapshotsPageToken,
-                request.pageSize,
-            ),
-        )
-    }
-
-    override suspend fun push(request: RemoteMutationRequest): RemoteMutationResult = withContext(Dispatchers.IO) {
-        val currentState = readState()
-        val now = System.currentTimeMillis()
-        val result = when (request.payload.artifactType) {
-            CollaborationArtifactType.ShareLink -> mutateShareLink(currentState, request, now)
-            CollaborationArtifactType.ReviewThread -> mutateThread(currentState, request, now)
-            CollaborationArtifactType.ActivityEvent -> mutateActivity(currentState, request, now)
-            CollaborationArtifactType.VersionSnapshot -> mutateSnapshot(currentState, request, now)
-        }
-        writeState(currentState)
-        result
-    }
-
-    private fun mutateShareLink(state: EmulatorState, request: RemoteMutationRequest, now: Long): RemoteMutationResult {
-        val incoming = request.payload.currentJson?.let { json.decodeFromString(ShareLinkModel.serializer(), it) }
-        val current = state.shareLinks.firstOrNull { it.id == request.payload.entityId }
-        current?.remoteVersion?.let { remoteVersion ->
-            if (request.payload.baseRemoteVersion != null && request.payload.baseRemoteVersion != remoteVersion) {
-                throw conflict(CollaborationArtifactType.ShareLink, current)
-            }
-        }
-        return if (request.payload.mutationKind == MutationKind.Delete) {
-            state.shareLinks.removeAll { it.id == request.payload.entityId }
-            RemoteMutationResult(CollaborationArtifactType.ShareLink, request.payload.entityId, deleted = true, remoteVersion = (current?.remoteVersion ?: 0L) + 1L, serverTimestampEpochMillis = now)
-        } else {
-            val updated = requireNotNull(incoming).copy(
-                remoteVersion = (current?.remoteVersion ?: 0L) + 1L,
-                serverUpdatedAtEpochMillis = now,
-                lastSyncedAtEpochMillis = now,
-            )
-            state.shareLinks.removeAll { it.id == updated.id }
-            state.shareLinks += updated
-            RemoteMutationResult(
-                artifactType = CollaborationArtifactType.ShareLink,
-                entityId = updated.id,
-                appliedJson = json.encodeToString(ShareLinkModel.serializer(), updated),
-                remoteVersion = updated.remoteVersion,
-                serverTimestampEpochMillis = now,
-            )
-        }
-    }
-
-    private fun mutateThread(state: EmulatorState, request: RemoteMutationRequest, now: Long): RemoteMutationResult {
-        val incoming = request.payload.currentJson?.let { json.decodeFromString(ReviewThreadModel.serializer(), it) }
-        val current = state.reviewThreads.firstOrNull { it.id == request.payload.entityId }
-        current?.remoteVersion?.let { remoteVersion ->
-            if (request.payload.baseRemoteVersion != null && request.payload.baseRemoteVersion != remoteVersion) {
-                throw conflict(CollaborationArtifactType.ReviewThread, current)
-            }
-        }
-        return if (request.payload.mutationKind == MutationKind.Delete) {
-            state.reviewThreads.removeAll { it.id == request.payload.entityId }
-            RemoteMutationResult(CollaborationArtifactType.ReviewThread, request.payload.entityId, deleted = true, remoteVersion = (current?.remoteVersion ?: 0L) + 1L, serverTimestampEpochMillis = now)
-        } else {
-            val updated = requireNotNull(incoming).copy(
-                remoteVersion = (current?.remoteVersion ?: 0L) + 1L,
-                serverUpdatedAtEpochMillis = now,
-                lastSyncedAtEpochMillis = now,
-            )
-            state.reviewThreads.removeAll { it.id == updated.id }
-            state.reviewThreads += updated
-            RemoteMutationResult(
-                artifactType = CollaborationArtifactType.ReviewThread,
-                entityId = updated.id,
-                appliedJson = json.encodeToString(ReviewThreadModel.serializer(), updated),
-                remoteVersion = updated.remoteVersion,
-                serverTimestampEpochMillis = now,
-            )
-        }
-    }
-
-    private fun mutateActivity(state: EmulatorState, request: RemoteMutationRequest, now: Long): RemoteMutationResult {
-        val event = request.payload.currentJson?.let { json.decodeFromString(ActivityEventModel.serializer(), it) }
-            ?: throw CollaborationRemoteException(RemoteErrorMetadata(RemoteErrorCode.InvalidRequest, "Missing activity payload", false))
-        val current = state.activityEvents.firstOrNull { it.id == event.id }
-        val updated = event.copy(
-            remoteVersion = (current?.remoteVersion ?: 0L) + 1L,
-            serverUpdatedAtEpochMillis = now,
-            lastSyncedAtEpochMillis = now,
-        )
-        state.activityEvents.removeAll { it.id == updated.id }
-        state.activityEvents += updated
-        return RemoteMutationResult(
-            artifactType = CollaborationArtifactType.ActivityEvent,
-            entityId = updated.id,
-            appliedJson = json.encodeToString(ActivityEventModel.serializer(), updated),
-            remoteVersion = updated.remoteVersion,
-            serverTimestampEpochMillis = now,
-        )
-    }
-
-    private fun mutateSnapshot(state: EmulatorState, request: RemoteMutationRequest, now: Long): RemoteMutationResult {
-        val snapshot = request.payload.currentJson?.let { json.decodeFromString(VersionSnapshotModel.serializer(), it) }
-            ?: throw CollaborationRemoteException(RemoteErrorMetadata(RemoteErrorCode.InvalidRequest, "Missing snapshot payload", false))
-        val current = state.versionSnapshots.firstOrNull { it.id == snapshot.id }
-        val updated = snapshot.copy(
-            remoteVersion = (current?.remoteVersion ?: 0L) + 1L,
-            serverUpdatedAtEpochMillis = now,
-            lastSyncedAtEpochMillis = now,
-        )
-        state.versionSnapshots.removeAll { it.id == updated.id }
-        state.versionSnapshots += updated
-        return RemoteMutationResult(
-            artifactType = CollaborationArtifactType.VersionSnapshot,
-            entityId = updated.id,
-            appliedJson = json.encodeToString(VersionSnapshotModel.serializer(), updated),
-            remoteVersion = updated.remoteVersion,
-            serverTimestampEpochMillis = now,
-        )
-    }
-
-    private fun <T> paginate(items: List<T>, pageToken: String?, pageSize: Int): CollaborationRemotePage<T> {
-        val offset = pageToken?.toIntOrNull()?.coerceAtLeast(0) ?: 0
-        val safePageSize = pageSize.coerceAtLeast(1)
-        val slice = items.drop(offset).take(safePageSize)
-        val nextToken = (offset + slice.size).takeIf { it < items.size }?.toString()
-        return CollaborationRemotePage(slice, nextToken, System.currentTimeMillis())
-    }
-
-    private fun conflict(artifactType: CollaborationArtifactType, current: Any): CollaborationRemoteException {
-        val conflictJson = when (artifactType) {
-            CollaborationArtifactType.ShareLink -> json.encodeToString(ShareLinkModel.serializer(), current as ShareLinkModel)
-            CollaborationArtifactType.ReviewThread -> json.encodeToString(ReviewThreadModel.serializer(), current as ReviewThreadModel)
-            CollaborationArtifactType.ActivityEvent -> json.encodeToString(ActivityEventModel.serializer(), current as ActivityEventModel)
-            CollaborationArtifactType.VersionSnapshot -> json.encodeToString(VersionSnapshotModel.serializer(), current as VersionSnapshotModel)
-        }
-        return CollaborationRemoteException(
-            RemoteErrorMetadata(
-                code = RemoteErrorCode.Conflict,
-                message = "Remote artifact changed since the local base version.",
-                retryable = false,
-                conflictRemoteJson = conflictJson,
-                serverTimestampEpochMillis = System.currentTimeMillis(),
-            ),
-        )
-    }
-
-    private fun readState(): EmulatorState {
-        if (!stateFile.exists()) return EmulatorState()
-        return runCatching {
-            json.decodeFromString(EmulatorState.serializer(), stateFile.readText())
-        }.getOrDefault(EmulatorState())
-    }
-
-    private fun writeState(state: EmulatorState) {
-        stateFile.parentFile?.mkdirs()
-        stateFile.writeText(json.encodeToString(EmulatorState.serializer(), state))
-    }
-
-    @Serializable
-    private data class EmulatorState(
-        val shareLinks: MutableList<ShareLinkModel> = mutableListOf(),
-        val reviewThreads: MutableList<ReviewThreadModel> = mutableListOf(),
-        val activityEvents: MutableList<ActivityEventModel> = mutableListOf(),
-        val versionSnapshots: MutableList<VersionSnapshotModel> = mutableListOf(),
-    )
-}
-
 private fun Throwable.isRetryableNetwork(): Boolean {
     return this is SocketTimeoutException || this is java.io.IOException
 }
-
-
 

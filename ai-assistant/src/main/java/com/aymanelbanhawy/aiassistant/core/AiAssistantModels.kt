@@ -18,6 +18,10 @@ enum class AssistantTaskType {
     ExtractActionItems,
     ExplainSelection,
     SemanticSearch,
+    AskWorkspace,
+    SummarizeWorkspace,
+    CrossDocumentSearch,
+    CompareAndSummarize,
 }
 
 @Serializable
@@ -70,7 +74,16 @@ enum class AiProviderStatus {
 }
 
 @Serializable
+enum class WorkspaceDocumentScope {
+    CurrentDocumentOnly,
+    PinnedDocumentsOnly,
+    RecentDocuments,
+}
+
+@Serializable
 data class CitationAnchor(
+    val documentKey: String = "",
+    val documentTitle: String = "",
     val pageIndex: Int,
     val bounds: NormalizedRect,
     val quote: String,
@@ -80,6 +93,9 @@ data class CitationAnchor(
 
     val regionLabel: String
         get() = "${bounds.left.formatPercent()}-${bounds.right.formatPercent()} x ${bounds.top.formatPercent()}-${bounds.bottom.formatPercent()}"
+
+    val sourceLabel: String
+        get() = listOf(documentTitle.takeIf { it.isNotBlank() }, pageLabel).joinToString(" • ")
 }
 
 @Serializable
@@ -207,6 +223,7 @@ data class AssistantSettings(
     val privacyMode: AssistantPrivacyMode = AssistantPrivacyMode.LocalOnly,
     val redactBeforeCloud: Boolean = true,
     val allowSuggestions: Boolean = true,
+    val workspaceScope: WorkspaceDocumentScope = WorkspaceDocumentScope.PinnedDocumentsOnly,
 )
 
 @Serializable
@@ -217,10 +234,59 @@ data class AssistantAvailability(
 )
 
 @Serializable
+data class WorkspaceDocumentReference(
+    val documentKey: String,
+    val displayName: String,
+    val sourceType: String,
+    val workingCopyPath: String,
+    val pinnedAtEpochMillis: Long,
+)
+
+@Serializable
+data class WorkspaceSummaryModel(
+    val id: String,
+    val title: String,
+    val summary: String,
+    val documentKeys: List<String>,
+    val createdAtEpochMillis: Long,
+)
+
+@Serializable
+data class RecentDocumentSetModel(
+    val id: String,
+    val title: String,
+    val documentKeys: List<String>,
+    val createdAtEpochMillis: Long,
+    val lastUsedAtEpochMillis: Long,
+)
+
+@Serializable
+data class AssistantWorkspacePolicy(
+    val localOnlyMultiDocumentMode: Boolean = true,
+    val cloudAssistedMultiDocumentEnabled: Boolean = false,
+    val approvedProviderIds: Set<String> = emptySet(),
+    val maxDocumentCount: Int = 5,
+    val allowedDocumentScope: WorkspaceDocumentScope = WorkspaceDocumentScope.PinnedDocumentsOnly,
+    val retentionDays: Int = 30,
+)
+
+@Serializable
+data class AssistantWorkspaceState(
+    val pinnedDocuments: List<WorkspaceDocumentReference> = emptyList(),
+    val availableRecentDocuments: List<WorkspaceDocumentReference> = emptyList(),
+    val selectedDocumentKeys: Set<String> = emptySet(),
+    val conversationHistory: List<AssistantMessage> = emptyList(),
+    val workspaceSummaries: List<WorkspaceSummaryModel> = emptyList(),
+    val recentDocumentSets: List<RecentDocumentSetModel> = emptyList(),
+    val policy: AssistantWorkspacePolicy = AssistantWorkspacePolicy(),
+)
+
+@Serializable
 data class AssistantUiState(
     val settings: AssistantSettings = AssistantSettings(),
     val availability: AssistantAvailability = AssistantAvailability(enabled = false, reason = "AI is disabled"),
     val providerRuntime: AiProviderRuntimeState = AiProviderRuntimeState(),
+    val workspace: AssistantWorkspaceState = AssistantWorkspaceState(),
     val prompt: String = "",
     val isWorking: Boolean = false,
     val latestResult: AssistantResult? = null,
@@ -237,7 +303,15 @@ data class AssistantPromptRequest(
     val currentPageIndex: Int,
     val selectionText: String,
     val pageContext: List<GroundedPageContext>,
+    val documentContext: List<GroundedDocumentContext> = emptyList(),
     val privacyMode: AssistantPrivacyMode,
+)
+
+@Serializable
+data class GroundedDocumentContext(
+    val documentKey: String,
+    val documentTitle: String,
+    val pageContext: List<GroundedPageContext>,
 )
 
 @Serializable
@@ -270,45 +344,117 @@ fun AiProviderProfile.toDraft(apiKeyInput: String = ""): AiProviderDraft = AiPro
     apiKeyInput = apiKeyInput,
     requestTimeoutSeconds = requestTimeoutSeconds,
     retryCount = retryCount,
-)
+).normalized()
 
 fun AiProviderDraft.toProfile(hasStoredCredential: Boolean): AiProviderProfile = AiProviderProfile(
     id = profileId,
     kind = kind,
-    displayName = displayName.ifBlank { kind.name },
+    displayName = displayName.ifBlank { kind.defaultDisplayName() },
     endpointUrl = endpointUrl.trim(),
     modelId = modelId.trim(),
     hasStoredCredential = hasStoredCredential,
     requestTimeoutSeconds = requestTimeoutSeconds.coerceIn(15, 300),
     retryCount = retryCount.coerceIn(0, 4),
-)
+).normalized()
 
 internal fun defaultProviderProfiles(): List<AiProviderProfile> = listOf(
     AiProviderProfile(
         id = DEFAULT_PROVIDER_ID,
         kind = AiProviderKind.OllamaLocal,
-        displayName = "Local Ollama",
-        endpointUrl = "http://10.0.2.2:11434",
+        displayName = AiProviderKind.OllamaLocal.defaultDisplayName(),
+        endpointUrl = AiProviderKind.OllamaLocal.defaultEndpointUrl(),
     ),
     AiProviderProfile(
         id = "ollama-remote",
         kind = AiProviderKind.OllamaRemote,
-        displayName = "Remote Ollama",
-        endpointUrl = "https://ollama.example.com",
+        displayName = AiProviderKind.OllamaRemote.defaultDisplayName(),
+        endpointUrl = AiProviderKind.OllamaRemote.defaultEndpointUrl(),
     ),
     AiProviderProfile(
         id = "openai",
         kind = AiProviderKind.OpenAi,
-        displayName = "OpenAI",
-        endpointUrl = "https://api.openai.com/v1",
+        displayName = AiProviderKind.OpenAi.defaultDisplayName(),
+        endpointUrl = AiProviderKind.OpenAi.defaultEndpointUrl(),
     ),
     AiProviderProfile(
         id = "openai-compatible",
         kind = AiProviderKind.OpenAiCompatible,
-        displayName = "OpenAI Compatible",
-        endpointUrl = "https://api.example.com/v1",
+        displayName = AiProviderKind.OpenAiCompatible.defaultDisplayName(),
+        endpointUrl = AiProviderKind.OpenAiCompatible.defaultEndpointUrl(),
     ),
+).map(AiProviderProfile::normalized)
+
+internal fun normalizePersistenceModel(model: AssistantPersistenceModel): AssistantPersistenceModel {
+    val normalizedProfiles = model.profiles
+        .ifEmpty { defaultProviderProfiles() }
+        .distinctBy { it.id }
+        .map(AiProviderProfile::normalized)
+    val selectedProviderId = normalizedProfiles.firstOrNull { it.id == model.selectedProviderId }?.id
+        ?: normalizedProfiles.firstOrNull()?.id
+        ?: DEFAULT_PROVIDER_ID
+    return model.copy(
+        selectedProviderId = selectedProviderId,
+        profiles = normalizedProfiles,
+    )
+}
+
+internal fun AiProviderProfile.normalized(): AiProviderProfile {
+    val normalizedEndpoint = endpointUrl.trim().replaceLegacyEndpoint(kind)
+    return copy(
+        displayName = displayName.ifBlank { kind.defaultDisplayName() },
+        endpointUrl = normalizedEndpoint.ifBlank { kind.defaultEndpointUrl() },
+        modelId = modelId.trim(),
+        requestTimeoutSeconds = requestTimeoutSeconds.coerceIn(15, 300),
+        retryCount = retryCount.coerceIn(0, 4),
+    )
+}
+
+internal fun AiProviderDraft.normalized(): AiProviderDraft = copy(
+    displayName = displayName.ifBlank { kind.defaultDisplayName() },
+    endpointUrl = endpointUrl.trim().replaceLegacyEndpoint(kind).ifBlank { kind.defaultEndpointUrl() },
+    modelId = modelId.trim(),
+    requestTimeoutSeconds = requestTimeoutSeconds.coerceIn(15, 300),
+    retryCount = retryCount.coerceIn(0, 4),
 )
+
+internal fun AiProviderKind.defaultDisplayName(): String = when (this) {
+    AiProviderKind.OllamaLocal -> "Local Ollama"
+    AiProviderKind.OllamaRemote -> "Remote Ollama"
+    AiProviderKind.OpenAi -> "OpenAI"
+    AiProviderKind.OpenAiCompatible -> "OpenAI Compatible"
+}
+
+internal fun AiProviderKind.defaultEndpointUrl(): String = when (this) {
+    AiProviderKind.OllamaLocal -> "http://10.0.2.2:11434"
+    AiProviderKind.OllamaRemote -> ""
+    AiProviderKind.OpenAi -> "https://api.openai.com/v1"
+    AiProviderKind.OpenAiCompatible -> ""
+}
+
+internal fun AiProviderKind.endpointPlaceholder(): String = when (this) {
+    AiProviderKind.OllamaLocal -> "http://10.0.2.2:11434"
+    AiProviderKind.OllamaRemote -> "https://your-ollama-host.example"
+    AiProviderKind.OpenAi -> "https://api.openai.com/v1"
+    AiProviderKind.OpenAiCompatible -> "https://your-compatible-host.example/v1"
+}
+
+internal fun AiProviderKind.requiresCredential(): Boolean = when (this) {
+    AiProviderKind.OllamaLocal -> false
+    AiProviderKind.OllamaRemote -> false
+    AiProviderKind.OpenAi -> true
+    AiProviderKind.OpenAiCompatible -> true
+}
+
+private fun String.replaceLegacyEndpoint(kind: AiProviderKind): String {
+    val normalized = trim().removeSuffix("/")
+    return when {
+        normalized.equals("https://ollama.example.com", ignoreCase = true) && kind == AiProviderKind.OllamaRemote -> ""
+        normalized.equals("https://api.example.com/v1", ignoreCase = true) && kind == AiProviderKind.OpenAiCompatible -> ""
+        normalized.equals("https://api.example.com/v1", ignoreCase = true) && kind == AiProviderKind.OpenAi -> AiProviderKind.OpenAi.defaultEndpointUrl()
+        normalized.isBlank() && kind == AiProviderKind.OpenAi -> AiProviderKind.OpenAi.defaultEndpointUrl()
+        else -> normalized
+    }
+}
 
 const val DEFAULT_PROVIDER_ID: String = "ollama-local"
 

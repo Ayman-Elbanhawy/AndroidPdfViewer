@@ -10,13 +10,17 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CloudSync
+import androidx.compose.material.icons.outlined.CompareArrows
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Done
+import androidx.compose.material.icons.outlined.DriveFileRenameOutline
 import androidx.compose.material.icons.outlined.FilterAlt
 import androidx.compose.material.icons.outlined.IosShare
 import androidx.compose.material.icons.outlined.MarkUnreadChatAlt
 import androidx.compose.material.icons.outlined.Replay
 import androidx.compose.material.icons.outlined.Save
+import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -33,6 +37,9 @@ import com.aymanelbanhawy.editor.core.collaboration.ReviewThreadModel
 import com.aymanelbanhawy.editor.core.collaboration.ReviewThreadState
 import com.aymanelbanhawy.editor.core.collaboration.ShareLinkModel
 import com.aymanelbanhawy.editor.core.collaboration.VersionSnapshotModel
+import com.aymanelbanhawy.editor.core.workflow.CompareReportModel
+import com.aymanelbanhawy.editor.core.workflow.FormTemplateModel
+import com.aymanelbanhawy.editor.core.workflow.WorkflowRequestModel
 import com.aymanelbanhawy.enterprisepdf.app.ui.IconTooltipButton
 
 @Composable
@@ -41,11 +48,18 @@ fun ReviewSidebar(
     shareLinks: List<ShareLinkModel>,
     reviewThreads: List<ReviewThreadModel>,
     snapshots: List<VersionSnapshotModel>,
+    compareReports: List<CompareReportModel>,
+    formTemplates: List<FormTemplateModel>,
+    workflowRequests: List<WorkflowRequestModel>,
     filter: ReviewFilterModel,
     pendingSyncCount: Int,
     onCreateShareLink: () -> Unit,
     onCreateSnapshot: () -> Unit,
     onSyncNow: () -> Unit,
+    onCompareAgainstLatestSnapshot: () -> Unit,
+    onCreateFormTemplate: (String) -> Unit,
+    onCreateSignatureRequest: (String) -> Unit,
+    onCreateFormRequest: (String, String) -> Unit,
     onFilterChanged: (ReviewFilterModel) -> Unit,
     onAddThread: (String, String) -> Unit,
     onAddReply: (String, String) -> Unit,
@@ -53,6 +67,8 @@ fun ReviewSidebar(
 ) {
     var draftTitle by remember { mutableStateOf("") }
     var draftMessage by remember { mutableStateOf("") }
+    var templateName by remember { mutableStateOf("") }
+    var recipientCsv by remember { mutableStateOf("") }
     var replyByThreadId by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
 
     Surface(modifier = modifier, tonalElevation = 2.dp, shape = MaterialTheme.shapes.extraLarge) {
@@ -61,36 +77,51 @@ fun ReviewSidebar(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 IconTooltipButton(icon = Icons.Outlined.IosShare, tooltip = "Create Share Link", onClick = onCreateShareLink)
                 IconTooltipButton(icon = Icons.Outlined.Save, tooltip = "Create Snapshot", onClick = onCreateSnapshot)
+                IconTooltipButton(icon = Icons.Outlined.CompareArrows, tooltip = "Compare With Latest Snapshot", onClick = onCompareAgainstLatestSnapshot)
                 IconTooltipButton(icon = Icons.Outlined.CloudSync, tooltip = "Sync $pendingSyncCount", onClick = onSyncNow)
+            }
+            if (compareReports.isNotEmpty()) {
+                Text("Recent compare", style = MaterialTheme.typography.titleMedium)
+                compareReports.take(3).forEach { report ->
+                    Surface(shape = MaterialTheme.shapes.large, tonalElevation = 1.dp) {
+                        Column(modifier = Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("${report.baselineDisplayName} vs ${report.comparedDisplayName}", style = MaterialTheme.typography.labelLarge)
+                            Text(report.summary.summaryText, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
             }
             Text("Thread filters", style = MaterialTheme.typography.titleMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                IconTooltipButton(
-                    icon = Icons.Outlined.FilterAlt,
-                    tooltip = "Show All Threads",
-                    selected = filter.state == null,
-                    onClick = { onFilterChanged(filter.copy(state = null)) },
-                )
-                IconTooltipButton(
-                    icon = Icons.Outlined.MarkUnreadChatAlt,
-                    tooltip = "Show Open Threads",
-                    selected = filter.state == ReviewThreadState.Open,
-                    onClick = { onFilterChanged(filter.copy(state = ReviewThreadState.Open)) },
-                )
-                IconTooltipButton(
-                    icon = Icons.Outlined.Done,
-                    tooltip = "Show Resolved Threads",
-                    selected = filter.state == ReviewThreadState.Resolved,
-                    onClick = { onFilterChanged(filter.copy(state = ReviewThreadState.Resolved)) },
-                )
+                IconTooltipButton(icon = Icons.Outlined.FilterAlt, tooltip = "Show All Threads", selected = filter.state == null, onClick = { onFilterChanged(filter.copy(state = null)) })
+                IconTooltipButton(icon = Icons.Outlined.MarkUnreadChatAlt, tooltip = "Show Open Threads", selected = filter.state == ReviewThreadState.Open, onClick = { onFilterChanged(filter.copy(state = ReviewThreadState.Open)) })
+                IconTooltipButton(icon = Icons.Outlined.Done, tooltip = "Show Resolved Threads", selected = filter.state == ReviewThreadState.Resolved, onClick = { onFilterChanged(filter.copy(state = ReviewThreadState.Resolved)) })
             }
-            OutlinedTextField(
-                modifier = Modifier.fillMaxWidth(),
-                value = filter.query,
-                onValueChange = { onFilterChanged(filter.copy(query = it)) },
-                label = { Text("Search threads") },
-                singleLine = true,
-            )
+            OutlinedTextField(modifier = Modifier.fillMaxWidth(), value = filter.query, onValueChange = { onFilterChanged(filter.copy(query = it)) }, label = { Text("Search threads") }, singleLine = true)
+            Text("Workflow prep", style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(modifier = Modifier.fillMaxWidth(), value = templateName, onValueChange = { templateName = it }, label = { Text("Template name") })
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                IconTooltipButton(icon = Icons.Outlined.Description, tooltip = "Save Form Template", onClick = { onCreateFormTemplate(templateName); templateName = "" })
+                formTemplates.firstOrNull()?.let { template ->
+                    IconTooltipButton(icon = Icons.Outlined.DriveFileRenameOutline, tooltip = "Send Form Request", onClick = { onCreateFormRequest(template.id, recipientCsv) })
+                }
+            }
+            OutlinedTextField(modifier = Modifier.fillMaxWidth(), value = recipientCsv, onValueChange = { recipientCsv = it }, label = { Text("Recipients (comma separated)") })
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                IconTooltipButton(icon = Icons.Outlined.VerifiedUser, tooltip = "Send Signature Request", onClick = { onCreateSignatureRequest(recipientCsv) })
+            }
+            if (formTemplates.isNotEmpty()) {
+                Text("Templates", style = MaterialTheme.typography.titleMedium)
+                formTemplates.take(4).forEach { template ->
+                    Text("${template.name} � ${template.schema.fieldMappings.size} field(s)", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            if (workflowRequests.isNotEmpty()) {
+                Text("Active requests", style = MaterialTheme.typography.titleMedium)
+                workflowRequests.take(4).forEach { request ->
+                    Text("${request.title} � ${request.status.name} � ${request.recipients.size} recipient(s)", style = MaterialTheme.typography.bodySmall)
+                }
+            }
             Text("New thread", style = MaterialTheme.typography.titleMedium)
             OutlinedTextField(modifier = Modifier.fillMaxWidth(), value = draftTitle, onValueChange = { draftTitle = it }, label = { Text("Title") })
             OutlinedTextField(modifier = Modifier.fillMaxWidth(), value = draftMessage, onValueChange = { draftMessage = it }, label = { Text("Comment with @mentions") })
@@ -98,21 +129,13 @@ fun ReviewSidebar(
             if (shareLinks.isNotEmpty()) {
                 Text("Share links", style = MaterialTheme.typography.titleMedium)
                 shareLinks.take(6).forEach { link ->
-                    IconTooltipButton(
-                        icon = Icons.Outlined.IosShare,
-                        tooltip = "${link.title}: ${link.permission.name}",
-                        onClick = {},
-                    )
+                    Text("${link.title} � ${link.permission.name}", style = MaterialTheme.typography.bodySmall)
                 }
             }
             if (snapshots.isNotEmpty()) {
                 Text("Versions", style = MaterialTheme.typography.titleMedium)
                 snapshots.take(6).forEach { snapshot ->
-                    IconTooltipButton(
-                        icon = Icons.Outlined.Save,
-                        tooltip = "${snapshot.label}: pages ${snapshot.comparison.pageCountDelta}, comments ${snapshot.comparison.commentDelta}",
-                        onClick = {},
-                    )
+                    Text("${snapshot.label} � comments ${snapshot.comparison.commentDelta}", style = MaterialTheme.typography.bodySmall)
                 }
             }
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -124,29 +147,16 @@ fun ReviewSidebar(
                             thread.comments.forEach { comment ->
                                 Text("${comment.author}: ${comment.message}", style = MaterialTheme.typography.bodySmall)
                             }
-                            OutlinedTextField(
-                                modifier = Modifier.fillMaxWidth(),
-                                value = replyByThreadId[thread.id].orEmpty(),
-                                onValueChange = { replyByThreadId = replyByThreadId + (thread.id to it) },
-                                label = { Text("Reply") },
-                            )
+                            OutlinedTextField(modifier = Modifier.fillMaxWidth(), value = replyByThreadId[thread.id].orEmpty(), onValueChange = { replyByThreadId = replyByThreadId + (thread.id to it) }, label = { Text("Reply") })
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                IconTooltipButton(
-                                    icon = Icons.Outlined.ContentCopy,
-                                    tooltip = "Reply",
-                                    onClick = {
-                                        val reply = replyByThreadId[thread.id].orEmpty()
-                                        if (reply.isNotBlank()) {
-                                            onAddReply(thread.id, reply)
-                                            replyByThreadId = replyByThreadId + (thread.id to "")
-                                        }
-                                    },
-                                )
-                                IconTooltipButton(
-                                    icon = if (thread.state == ReviewThreadState.Resolved) Icons.Outlined.Replay else Icons.Outlined.Done,
-                                    tooltip = if (thread.state == ReviewThreadState.Resolved) "Reopen Thread" else "Resolve Thread",
-                                    onClick = { onToggleResolved(thread.id, thread.state != ReviewThreadState.Resolved) },
-                                )
+                                IconTooltipButton(icon = Icons.Outlined.ContentCopy, tooltip = "Reply", onClick = {
+                                    val reply = replyByThreadId[thread.id].orEmpty()
+                                    if (reply.isNotBlank()) {
+                                        onAddReply(thread.id, reply)
+                                        replyByThreadId = replyByThreadId + (thread.id to "")
+                                    }
+                                })
+                                IconTooltipButton(icon = if (thread.state == ReviewThreadState.Resolved) Icons.Outlined.Replay else Icons.Outlined.Done, tooltip = if (thread.state == ReviewThreadState.Resolved) "Reopen Thread" else "Resolve Thread", onClick = { onToggleResolved(thread.id, thread.state != ReviewThreadState.Resolved) })
                             }
                         }
                     }

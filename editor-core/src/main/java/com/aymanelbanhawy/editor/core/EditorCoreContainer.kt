@@ -23,6 +23,7 @@ import com.aymanelbanhawy.editor.core.migration.CoreMigrationRepository
 import com.aymanelbanhawy.editor.core.migration.DefaultCoreMigrationRepository
 import com.aymanelbanhawy.editor.core.ocr.OcrJobPipeline
 import com.aymanelbanhawy.editor.core.ocr.OcrSessionStore
+import com.aymanelbanhawy.editor.core.ocr.PdfBoxOcrPdfWriter
 import com.aymanelbanhawy.editor.core.organize.DefaultPageThumbnailRepository
 import com.aymanelbanhawy.editor.core.organize.PageThumbnailRepository
 import com.aymanelbanhawy.editor.core.repository.DefaultDocumentRepository
@@ -46,6 +47,8 @@ import com.aymanelbanhawy.editor.core.work.SearchIndexScheduler
 import com.aymanelbanhawy.editor.core.work.TelemetryUploadScheduler
 import com.aymanelbanhawy.editor.core.work.WorkManagerAutosaveScheduler
 import com.aymanelbanhawy.editor.core.work.WorkManagerCollaborationSyncScheduler
+import com.aymanelbanhawy.editor.core.workflow.DefaultWorkflowRepository
+import com.aymanelbanhawy.editor.core.workflow.WorkflowRepository
 import com.aymanelbanhawy.editor.core.write.PdfBoxWriteEngine
 import com.aymanelbanhawy.editor.core.write.RoomMutationInvalidationHooks
 import kotlinx.serialization.json.Json
@@ -115,6 +118,7 @@ class EditorCoreContainer(
         workManager = workManager,
         json = json,
         ocrSessionStore = ocrSessionStore,
+        ocrPdfWriter = PdfBoxOcrPdfWriter(),
         diagnosticsRepository = runtimeDiagnosticsRepository,
     )
     val formSupportRepository: FormSupportRepository = DefaultFormSupportRepository(
@@ -161,6 +165,16 @@ class EditorCoreContainer(
         credentialStore = collaborationCredentialStore,
         json = json,
     )
+    val workflowRepository: WorkflowRepository = DefaultWorkflowRepository(
+        context = appContext,
+        compareReportDao = database.compareReportDao(),
+        formTemplateDao = database.formTemplateDao(),
+        workflowRequestDao = database.workflowRequestDao(),
+        activityEventDao = database.activityEventDao(),
+        enterpriseAdminRepository = enterpriseAdminRepository,
+        extractionService = extractionService,
+        json = json,
+    )
     val collaborationRepository: CollaborationRepository = DefaultCollaborationRepository(
         context = appContext,
         shareLinkDao = database.shareLinkDao(),
@@ -195,4 +209,11 @@ class EditorCoreContainer(
     }
 
     fun newSession(): EditorSession = DefaultEditorSession(documentRepository, autosaveScheduler)
+
+    fun recentDocumentDao() = database.recentDocumentDao()
 }
+
+
+
+
+

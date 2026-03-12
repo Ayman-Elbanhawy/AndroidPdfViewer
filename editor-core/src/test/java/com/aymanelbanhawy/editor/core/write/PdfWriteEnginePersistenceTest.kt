@@ -37,9 +37,10 @@ class PdfWriteEnginePersistenceTest {
     }
 
     @Test
-    fun load_readsLegacyPageEditSidecar() = runBlocking {
-        val pdfFile = createPdf("legacy.pdf", listOf(PDRectangle.LETTER))
-        File(pdfFile.absolutePath + ".pageedits.json").writeText(
+    fun load_readsLegacyPageEditSidecar_andMigratesForward() = runBlocking {
+        val pdfFile = createPdf("legacy-${System.nanoTime()}.pdf", listOf(PDRectangle.LETTER))
+        val legacySidecar = File(pdfFile.absolutePath + ".pageedits.json")
+        legacySidecar.writeText(
             """
             {"documentKey":"${pdfFile.absolutePath.replace("\\", "\\\\")}","editObjects":[{"_type":"com.aymanelbanhawy.editor.core.model.TextBoxEditModel","id":"text-1","pageIndex":0,"bounds":{"left":0.1,"top":0.1,"right":0.4,"bottom":0.2},"rotationDegrees":0.0,"opacity":1.0,"text":"Legacy","fontFamily":"Sans","fontSizeSp":16.0,"textColorHex":"#202124","alignment":"Start","lineSpacingMultiplier":1.2}],"updatedAtEpochMillis":1}
             """.trimIndent(),
@@ -57,12 +58,15 @@ class PdfWriteEnginePersistenceTest {
 
         assertThat(loaded[0]).hasSize(1)
         assertThat((loaded[0]!!.single() as TextBoxEditModel).text).isEqualTo("Legacy")
+        assertThat(File(pdfFile.absolutePath + ".mutations.json").exists()).isTrue()
+        assertThat(legacySidecar.exists()).isFalse()
+        assertThat(File(pdfFile.absolutePath + ".pageedits.json.legacy-migrated").exists()).isTrue()
     }
 
     @Test
-    fun persist_writesStructuralMutationsAndTransactionLog() = runBlocking {
-        val source = createPdf("source.pdf", listOf(PDRectangle.LETTER, PDRectangle.A4))
-        val destination = File(context.filesDir, "out.pdf")
+    fun persist_writesStructuralMutationsAndTransactionLog_withoutRecreatingLegacySidecar() = runBlocking {
+        val source = createPdf("source-${System.nanoTime()}.pdf", listOf(PDRectangle.LETTER, PDRectangle.A4))
+        val destination = File(context.filesDir, "out-${System.nanoTime()}.pdf")
         val imageFile = File(context.filesDir, "image-page.png")
         android.graphics.Bitmap.createBitmap(20, 20, android.graphics.Bitmap.Config.ARGB_8888).apply {
             eraseColor(android.graphics.Color.RED)
@@ -120,9 +124,56 @@ class PdfWriteEnginePersistenceTest {
         }
         assertThat(File(destination.absolutePath + ".mutations.json").exists()).isTrue()
         assertThat(File(destination.absolutePath + ".mutationlog.json").exists()).isTrue()
-        assertThat(File(destination.absolutePath + ".pageedits.json").exists()).isTrue()
+        assertThat(File(destination.absolutePath + ".pageedits.json").exists()).isFalse()
         assertThat(result.structuralMutationApplied).isTrue()
         assertThat(result.executionMode).isEqualTo(SaveExecutionMode.SaveAs)
+    }
+
+    @Test
+    fun persist_restoresPdfAndMutationMetadata_whenStructuralSaveFails() = runBlocking {
+        val existingPdf = createPdf("rollback-${System.nanoTime()}.pdf", listOf(PDRectangle.LETTER))
+        val sessionFile = File(existingPdf.absolutePath + ".mutations.json")
+        sessionFile.writeText(
+            """
+            {"schemaVersion":2,"documentKey":"${existingPdf.absolutePath.replace("\\", "\\\\")}","exportMode":"Editable","editObjects":[],"transactionId":"original","updatedAtEpochMillis":1,"legacySidecarMigrated":false,"integrity":"Verified","checksumSha256":"4f53cda18c2baa0c0354bb5f9a3ecbe5ed7c6d8fd65f4d4d7f6d1d2a2f1b0f8a"}
+            """.trimIndent(),
+        )
+        val originalBytes = existingPdf.readBytes()
+        val originalSession = sessionFile.readText()
+        val engine = PdfBoxWriteEngine(context)
+        val brokenDocument = DocumentModel(
+            sessionId = "broken-session",
+            documentRef = PdfDocumentRef(
+                uriString = existingPdf.toURI().toString(),
+                displayName = existingPdf.name,
+                sourceType = DocumentSourceType.File,
+                sourceKey = existingPdf.absolutePath,
+                workingCopyPath = existingPdf.absolutePath,
+            ),
+            pages = listOf(
+                PageModel(
+                    index = 0,
+                    label = "1",
+                    rotationDegrees = 0,
+                    contentType = PageContentType.Pdf,
+                    sourceDocumentPath = File(context.filesDir, "missing-source.pdf").absolutePath,
+                    sourcePageIndex = 0,
+                    widthPoints = PDRectangle.LETTER.width,
+                    heightPoints = PDRectangle.LETTER.height,
+                ),
+            ),
+        )
+
+        val failure = runCatching {
+            engine.persist(brokenDocument, existingPdf, AnnotationExportMode.Editable, SaveStrategy.FullRewrite)
+        }.exceptionOrNull()
+        assertThat(failure).isNotNull()
+
+        assertThat(existingPdf.readBytes()).isEqualTo(originalBytes)
+        assertThat(sessionFile.readText()).isEqualTo(originalSession)
+        PDDocument.load(existingPdf).use { restored ->
+            assertThat(restored.numberOfPages).isEqualTo(1)
+        }
     }
 
     private fun createPdf(name: String, pageSizes: List<PDRectangle>): File {

@@ -18,6 +18,7 @@ import com.aymanelbanhawy.editor.core.search.DocumentSearchService
 import com.aymanelbanhawy.editor.core.security.SecurityRepository
 import com.aymanelbanhawy.editor.core.session.EditorSession
 import com.aymanelbanhawy.editor.core.work.SearchIndexScheduler
+import com.aymanelbanhawy.editor.core.workflow.WorkflowRepository
 import com.aymanelbanhawy.enterprisepdf.app.migration.AppMigrationCoordinator
 import com.aymanelbanhawy.enterprisepdf.app.migration.DefaultAppMigrationCoordinator
 import com.aymanelbanhawy.enterprisepdf.app.release.AppRuntimeConfig
@@ -37,6 +38,7 @@ class AppContainer(
     val scanImportService: ScanImportService get() = editorCoreContainer.scanImportService
     val ocrJobPipeline: OcrJobPipeline get() = editorCoreContainer.ocrJobPipeline
     val collaborationRepository: CollaborationRepository get() = editorCoreContainer.collaborationRepository
+    val workflowRepository: WorkflowRepository get() = editorCoreContainer.workflowRepository
     val securityRepository: SecurityRepository get() = editorCoreContainer.securityRepository
     val enterpriseAdminRepository: EnterpriseAdminRepository get() = editorCoreContainer.enterpriseAdminRepository
     val runtimeDiagnosticsRepository: RuntimeDiagnosticsRepository get() = editorCoreContainer.runtimeDiagnosticsRepository
@@ -48,6 +50,8 @@ class AppContainer(
             DefaultAiAssistantRepository.create(
                 context = appContext,
                 documentSearchService = editorCoreContainer.documentSearchService,
+                documentRepository = editorCoreContainer.documentRepository,
+                recentDocumentDao = editorCoreContainer.recentDocumentDao(),
                 enterpriseAdminRepository = editorCoreContainer.enterpriseAdminRepository,
                 securityRepository = editorCoreContainer.securityRepository,
             )
@@ -60,3 +64,4 @@ class AppContainer(
         return OpenDocumentRequest.FromAsset(assetName = "sample.pdf", displayName = "sample.pdf")
     }
 }
+

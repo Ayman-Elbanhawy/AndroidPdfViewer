@@ -51,6 +51,25 @@ Supported product flavors:
 * `prod`
 * `enterpriseDemo`
 
+## Release and Compliance Gates
+
+Current release checks now fail builds when production paths still contain:
+
+* placeholder endpoints such as `example.invalid`
+* unresolved dependency licenses
+* fake, no-op, in-memory, example, or placeholder implementation types under `src/main`
+* debug or placeholder certificate pin values
+
+Useful commands:
+
+```powershell
+.\gradlew.bat :app:validateReleaseReadiness
+.\gradlew.bat :app:generateSbom :app:generateLicenseReport
+powershell -ExecutionPolicy Bypass -File .\scripts\run-smoke-tests.ps1
+```
+
+Managed app configuration supports tenant bootstrap, AI defaults and restrictions, connector restrictions, telemetry policy, watermark enforcement, metadata scrub enforcement, and external sharing controls. See `docs/deployment/managed-config.md`.
+
 ## Upgrade and Migration Safety
 
 The current implementation includes a versioned migration/repair layer for existing local users. On startup the app now:
@@ -351,4 +370,35 @@ pdfView.exportEditedPdf(output);
 ```
 
 Coordinates are normalized per page, so `RectF(0f, 0f, 1f, 1f)` maps to the full page. Export preserves the original input PDF and writes the edited result to a new file.
+
+
+
+Supported product flavors:
+
+* dev
+* qa
+* prod
+* enterpriseDemo
+
+## Release and Compliance Gates
+
+Current release checks now fail builds when production paths still contain:
+
+* placeholder endpoints such as `example.invalid`
+* unresolved dependency licenses
+* fake, no-op, in-memory, example, or placeholder implementation types under `src/main`
+* debug or placeholder certificate pin values
+
+Useful commands:
+
+```powershell
+.\gradlew.bat :app:validateReleaseReadiness
+.\gradlew.bat :app:generateSbom :app:generateLicenseReport
+powershell -ExecutionPolicy Bypass -File .\scripts\run-smoke-tests.ps1
+```
+
+Managed app configuration supports tenant bootstrap, AI defaults and restrictions, connector restrictions, telemetry policy, watermark enforcement, metadata scrub enforcement, and external sharing controls. See `docs/deployment/managed-config.md`.
+
+
+
 

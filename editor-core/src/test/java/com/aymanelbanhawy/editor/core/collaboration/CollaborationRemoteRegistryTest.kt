@@ -30,14 +30,19 @@ class CollaborationRemoteRegistryTest {
     }
 
     @Test
-    fun localModeSelectsEmulatorEvenWhenCloudSharingBlocked() = runTest {
+    fun legacyLocalModeWithRealEndpointMigratesToHttpProvider() = runTest {
         val registry = CollaborationRemoteRegistry(
             context = context,
             enterpriseAdminRepository = StaticEnterpriseRepo(
                 EnterpriseAdminStateModel(
                     authSession = AuthSessionModel(mode = AuthenticationMode.Personal, provider = AuthenticationProvider.Local, isSignedIn = true),
-                    tenantConfiguration = TenantConfigurationModel(collaboration = CollaborationServiceConfig(backendMode = CollaborationBackendMode.LocalEmulator)),
-                    adminPolicy = AdminPolicyModel(allowCollaborationSync = true, allowExternalSharing = false),
+                    tenantConfiguration = TenantConfigurationModel(
+                        collaboration = CollaborationServiceConfig(
+                            backendMode = CollaborationBackendMode.LocalEmulator,
+                            baseUrl = "https://reviews.example.com",
+                        ),
+                    ),
+                    adminPolicy = AdminPolicyModel(allowCollaborationSync = true, allowExternalSharing = true),
                 ),
             ),
             credentialStore = CollaborationCredentialStore(context, json),
@@ -46,7 +51,33 @@ class CollaborationRemoteRegistryTest {
 
         val selected = registry.select()
 
-        assertThat(selected).isInstanceOf(LocalEmulatorCollaborationRemoteDataSource::class.java)
+        assertThat(selected).isInstanceOf(HttpCollaborationRemoteDataSource::class.java)
+    }
+
+    @Test
+    fun legacyLocalModeWithoutEndpointFailsWithMigrationMessage() = runTest {
+        val registry = CollaborationRemoteRegistry(
+            context = context,
+            enterpriseAdminRepository = StaticEnterpriseRepo(
+                EnterpriseAdminStateModel(
+                    authSession = AuthSessionModel(mode = AuthenticationMode.Personal, provider = AuthenticationProvider.Local, isSignedIn = true),
+                    tenantConfiguration = TenantConfigurationModel(
+                        collaboration = CollaborationServiceConfig(
+                            backendMode = CollaborationBackendMode.LocalEmulator,
+                            baseUrl = "",
+                        ),
+                    ),
+                    adminPolicy = AdminPolicyModel(allowCollaborationSync = true, allowExternalSharing = true),
+                ),
+            ),
+            credentialStore = CollaborationCredentialStore(context, json),
+            json = json,
+        )
+
+        val error = runCatching { registry.select() }.exceptionOrNull()
+
+        assertThat(error).isInstanceOf(CollaborationRemoteException::class.java)
+        assertThat((error as CollaborationRemoteException).error.message).contains("Configure a collaboration service endpoint")
     }
 
     @Test
@@ -87,15 +118,3 @@ private class StaticEnterpriseRepo(
     override suspend fun flushTelemetry(): Int = 0
     override suspend fun diagnosticsBundle(destination: File, appSummary: Map<String, String>): File = destination
 }
-
-
-
-
-
-
-
-
-
-
-
-

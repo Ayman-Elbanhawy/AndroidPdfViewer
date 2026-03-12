@@ -254,7 +254,7 @@ private class TestEnterpriseAdminRepository : EnterpriseAdminRepository {
     private var state = EnterpriseAdminStateModel(
         plan = LicensePlan.Enterprise,
         authSession = AuthSessionModel(mode = AuthenticationMode.Enterprise, provider = AuthenticationProvider.Oidc, isSignedIn = true, displayName = "Ayman"),
-        tenantConfiguration = TenantConfigurationModel(collaboration = CollaborationServiceConfig(backendMode = CollaborationBackendMode.LocalEmulator)),
+        tenantConfiguration = TenantConfigurationModel(collaboration = CollaborationServiceConfig(backendMode = CollaborationBackendMode.RemoteHttp, baseUrl = "https://reviews.example.com")),
         adminPolicy = AdminPolicyModel(allowCollaborationSync = true, allowExternalSharing = true),
     )
 
@@ -324,6 +324,7 @@ private class FakeSyncQueueDao : SyncQueueDao {
     override suspend fun eligible(documentKey: String, nowEpochMillis: Long): List<SyncQueueEntity> = items.values.filter { it.documentKey == documentKey && it.state in listOf(SyncOperationState.Pending.name, SyncOperationState.Failed.name, SyncOperationState.Conflict.name) && it.nextAttemptAtEpochMillis <= nowEpochMillis }
     override suspend fun eligibleAll(nowEpochMillis: Long): List<SyncQueueEntity> = items.values.filter { it.state in listOf(SyncOperationState.Pending.name, SyncOperationState.Failed.name, SyncOperationState.Conflict.name) && it.nextAttemptAtEpochMillis <= nowEpochMillis }
 }
+
 
 
 

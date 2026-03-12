@@ -19,8 +19,10 @@ enum class RuntimeEventCategory {
     Ocr,
     Sync,
     Recovery,
+    Migration,
     Cache,
     Provider,
+    Connector,
     Failure,
 }
 
@@ -58,15 +60,42 @@ data class ProviderHealthModel(
     val detail: String,
 )
 
+data class MigrationDiagnosticsModel(
+    val completedAtEpochMillis: Long? = null,
+    val successCount: Int = 0,
+    val failureCount: Int = 0,
+    val compatibilityModeUsed: Boolean = false,
+    val aiStateNormalizedCount: Int = 0,
+    val notice: String? = null,
+    val reportPath: String? = null,
+)
+
+data class ConnectorDiagnosticsModel(
+    val configuredAccountCount: Int = 0,
+    val activeTransferCount: Int = 0,
+    val failedTransferCount: Int = 0,
+    val enterpriseManagedCount: Int = 0,
+    val supportsResumableTransferCount: Int = 0,
+)
+
+data class FailureSummaryModel(
+    val category: RuntimeEventCategory,
+    val count: Int,
+    val latestMessage: String,
+)
+
 data class RuntimeDiagnosticsSnapshot(
     val startupElapsedMillis: Long = 0,
     val lastDocumentOpenElapsedMillis: Long = 0,
     val lastSaveElapsedMillis: Long = 0,
     val cache: CacheDiagnosticsModel = CacheDiagnosticsModel(),
     val queues: QueueDiagnosticsModel = QueueDiagnosticsModel(),
+    val migration: MigrationDiagnosticsModel = MigrationDiagnosticsModel(),
+    val connectors: ConnectorDiagnosticsModel = ConnectorDiagnosticsModel(),
     val providerHealth: List<ProviderHealthModel> = emptyList(),
     val recentBreadcrumbs: List<RuntimeBreadcrumbModel> = emptyList(),
     val recentFailures: List<RuntimeBreadcrumbModel> = emptyList(),
+    val failureSummaries: List<FailureSummaryModel> = emptyList(),
 )
 
 data class StartupRepairResult(

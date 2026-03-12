@@ -1,4 +1,4 @@
-﻿package com.aymanelbanhawy.editor.core.collaboration
+package com.aymanelbanhawy.editor.core.collaboration
 
 import com.aymanelbanhawy.editor.core.model.DocumentModel
 import com.aymanelbanhawy.editor.core.model.NormalizedRect
@@ -123,6 +123,12 @@ enum class ActivityEventType {
     Signed,
     Shared,
     Exported,
+    Compared,
+    FormTemplateSaved,
+    FormRequested,
+    SignatureRequested,
+    RequestResponded,
+    RequestReminderSent,
 }
 
 @Serializable
@@ -341,3 +347,4 @@ interface CollaborationRepository {
     suspend fun pendingSyncOperations(documentKey: String): List<SyncOperationModel>
     suspend fun processSync(documentKey: String): CollaborationSyncSummary
 }
+

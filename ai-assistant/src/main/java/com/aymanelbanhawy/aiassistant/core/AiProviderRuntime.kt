@@ -151,6 +151,9 @@ class ProviderSelectionEngine {
         if (enterpriseState.authSession.mode == AuthenticationMode.Enterprise && isCloud && !enterpriseState.adminPolicy.allowCloudAiProviders) {
             return ProviderSelectionDecision(null, "Tenant policy blocks cloud AI providers.")
         }
+        if (enterpriseState.adminPolicy.approvedAiProviderIds.isNotEmpty() && selected.id !in enterpriseState.adminPolicy.approvedAiProviderIds) {
+            return ProviderSelectionDecision(null, "Tenant policy allows only approved AI providers.")
+        }
         return ProviderSelectionDecision(selected)
     }
 }
@@ -567,6 +570,7 @@ private fun modelContextHint(modelId: String): Int? {
 }
 
 private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
+
 
 
 

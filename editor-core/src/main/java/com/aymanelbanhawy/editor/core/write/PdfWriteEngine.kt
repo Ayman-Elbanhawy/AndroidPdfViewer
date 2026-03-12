@@ -171,22 +171,14 @@ class PdfBoxWriteEngine(
 
     override suspend fun load(documentRef: PdfDocumentRef): Map<Int, List<PageEditModel>> = withContext(ioDispatcher) {
         val sessionFile = resolveMutationSession(documentRef)
-        val backupSessionFile = sessionFile?.let { File(it.absolutePath + ".bak") }
+        val backupSessionFile = sessionFile?.backupFile()
         val legacyFile = resolveLegacySidecar(documentRef)
         val recovered = readSession(sessionFile)
-            ?: readSession(backupSessionFile)?.first?.copy(integrity = MutationIntegrityStatus.RecoveredFromBackup)?.let { it to MutationIntegrityStatus.RecoveredFromBackup }
-            ?: readLegacy(legacyFile)?.first?.let { legacyPayload ->
-                PdfMutationSessionPayload(
-                    schemaVersion = SCHEMA_VERSION,
-                    documentKey = legacyPayload.documentKey,
-                    exportMode = AnnotationExportMode.Editable,
-                    editObjects = legacyPayload.editObjects,
-                    transactionId = UUID.randomUUID().toString(),
-                    updatedAtEpochMillis = legacyPayload.updatedAtEpochMillis,
-                    legacySidecarMigrated = true,
-                    integrity = MutationIntegrityStatus.LegacyMigrated,
-                    checksumSha256 = sha256(json.encodeToString(ListSerializer(PageEditModel.serializer()), legacyPayload.editObjects)),
-                ) to MutationIntegrityStatus.LegacyMigrated
+            ?: readSession(backupSessionFile)?.let { (payload, _) ->
+                payload.copy(integrity = MutationIntegrityStatus.RecoveredFromBackup) to MutationIntegrityStatus.RecoveredFromBackup
+            }
+            ?: readLegacy(legacyFile)?.let { (legacyPayload, _) ->
+                migrateLegacyPayload(documentRef, legacyPayload, legacyFile)
             }
             ?: return@withContext emptyMap()
         recovered.first.editObjects.groupBy { it.pageIndex }
@@ -199,7 +191,7 @@ class PdfBoxWriteEngine(
         strategy: SaveStrategy,
     ): PdfMutationSaveResult = withContext(ioDispatcher) {
         destinationPdf.parentFile?.mkdirs()
-        val lockFile = File(destinationPdf.absolutePath + ".saving.lock")
+        val lockFile = File(destinationPdf.absolutePath + LOCK_SUFFIX)
         FileOutputStream(lockFile, true).channel.use { channel ->
             channel.lock().use {
                 val structuralMutationApplied = hasStructuralMutations(document, destinationPdf)
@@ -210,11 +202,19 @@ class PdfBoxWriteEngine(
                     else -> destinationPdf
                 }
                 val transactionId = UUID.randomUUID().toString()
-                val tempPdf = if (executionMode == SaveExecutionMode.Incremental && destinationPdf.exists()) destinationPdf else File(destinationPdf.parentFile, destinationPdf.name + ".tmp")
-                val backupPdf = File(destinationPdf.absolutePath + ".bak")
+                val tempPdf = if (executionMode == SaveExecutionMode.Incremental && destinationPdf.exists()) destinationPdf else File(destinationPdf.parentFile, destinationPdf.name + TEMP_SUFFIX)
+                val backupPdf = File(destinationPdf.absolutePath + BACKUP_SUFFIX)
+                val sessionFile = File(destinationPdf.absolutePath + SESSION_SUFFIX)
+                val transactionFile = File(destinationPdf.absolutePath + TRANSACTION_SUFFIX)
+                val legacySidecar = File(destinationPdf.absolutePath + LEGACY_SIDECAR_SUFFIX)
+                val sessionBackup = sessionFile.backupFile()
+                val transactionBackup = transactionFile.backupFile()
+                val legacyMigrated = legacySidecar.exists() || hasArchivedLegacySidecar(destinationPdf)
                 if (destinationPdf.exists() && tempPdf != destinationPdf) {
                     destinationPdf.copyTo(backupPdf, overwrite = true)
                 }
+                backupFile(sessionFile)
+                backupFile(transactionFile)
                 try {
                     when (executionMode) {
                         SaveExecutionMode.Incremental -> applyIncremental(document, destinationPdf, exportMode)
@@ -224,17 +224,13 @@ class PdfBoxWriteEngine(
                         tempPdf.copyTo(destinationPdf, overwrite = true)
                         tempPdf.delete()
                     }
-                    val entries = buildTransactionEntries(document, exportMode, structuralMutationApplied)
-                    val sessionFile = File(destinationPdf.absolutePath + ".mutations.json")
-                    val legacySidecar = File(destinationPdf.absolutePath + ".pageedits.json")
-                    val transactionFile = File(destinationPdf.absolutePath + ".mutationlog.json")
-                    backupSidecar(sessionFile)
-                    backupSidecar(transactionFile)
-                    val sessionPayload = buildSessionPayload(document, exportMode, transactionId)
+                    val entries = buildTransactionEntries(document, exportMode, structuralMutationApplied, legacyMigrated)
+                    val sessionPayload = buildSessionPayload(document, exportMode, transactionId, legacyMigrated)
                     val sessionJson = json.encodeToString(PdfMutationSessionPayload.serializer(), sessionPayload)
                     val sessionSha = sha256(sessionJson)
                     sessionFile.writeText(sessionJson)
-                    writeLegacyMirror(document, exportMode, legacySidecar)
+                    verifySessionFile(sessionFile, sessionPayload)
+                    val pdfSha = sha256(destinationPdf)
                     val transactionLog = PdfMutationTransactionLog(
                         transactionId = transactionId,
                         documentKey = document.documentRef.sourceKey,
@@ -242,11 +238,15 @@ class PdfBoxWriteEngine(
                         strategy = strategy,
                         executionMode = executionMode,
                         entries = entries,
-                        pdfSha256 = sha256(destinationPdf),
+                        pdfSha256 = pdfSha,
                         sessionSha256 = sessionSha,
                         createdAtEpochMillis = System.currentTimeMillis(),
                     )
                     transactionFile.writeText(json.encodeToString(PdfMutationTransactionLog.serializer(), transactionLog))
+                    archiveLegacySidecar(legacySidecar)
+                    cleanupBackup(sessionBackup)
+                    cleanupBackup(transactionBackup)
+                    cleanupBackup(backupPdf)
                     if (structuralMutationApplied) {
                         invalidationHooks.invalidateThumbnails(document)
                         invalidationHooks.invalidateSearchIndex(document.documentRef.sourceKey)
@@ -257,18 +257,19 @@ class PdfBoxWriteEngine(
                         executionMode = executionMode,
                         transactionLogFile = transactionFile,
                         sessionFile = sessionFile,
-                        pdfSha256 = transactionLog.pdfSha256,
+                        pdfSha256 = pdfSha,
                         sessionSha256 = sessionSha,
                         integrityStatus = sessionPayload.integrity,
                         structuralMutationApplied = structuralMutationApplied,
                     )
                 } catch (throwable: Throwable) {
-                    if (backupPdf.exists()) {
-                        backupPdf.copyTo(destinationPdf, overwrite = true)
-                    }
+                    restoreFileFromBackup(backupPdf, destinationPdf)
+                    restoreFileFromBackup(sessionBackup, sessionFile)
+                    restoreFileFromBackup(transactionBackup, transactionFile)
+                    tempPdf.takeIf { it != destinationPdf && it.exists() }?.delete()
                     throw throwable
                 } finally {
-                    backupPdf.takeIf { it.exists() }?.delete()
+                    lockFile.takeIf { it.exists() }?.delete()
                 }
             }
         }
@@ -291,6 +292,29 @@ class PdfBoxWriteEngine(
         }.getOrNull()
     }
 
+
+    private fun migrateLegacyPayload(
+        documentRef: PdfDocumentRef,
+        legacyPayload: PageEditSidecarPayload,
+        legacyFile: File?,
+    ): Pair<PdfMutationSessionPayload, MutationIntegrityStatus>? {
+        val sessionFile = resolveMutationSession(documentRef) ?: return null
+        val payload = PdfMutationSessionPayload(
+            schemaVersion = SCHEMA_VERSION,
+            documentKey = legacyPayload.documentKey,
+            exportMode = AnnotationExportMode.Editable,
+            editObjects = legacyPayload.editObjects,
+            transactionId = UUID.randomUUID().toString(),
+            updatedAtEpochMillis = legacyPayload.updatedAtEpochMillis,
+            legacySidecarMigrated = true,
+            integrity = MutationIntegrityStatus.LegacyMigrated,
+            checksumSha256 = sha256(json.encodeToString(ListSerializer(PageEditModel.serializer()), legacyPayload.editObjects)),
+        )
+        sessionFile.parentFile?.mkdirs()
+        sessionFile.writeText(json.encodeToString(PdfMutationSessionPayload.serializer(), payload))
+        archiveLegacySidecar(legacyFile)
+        return payload to MutationIntegrityStatus.LegacyMigrated
+    }
     private fun selectExecutionMode(strategy: SaveStrategy, structuralMutationApplied: Boolean, destinationPdf: File): SaveExecutionMode {
         return when (strategy) {
             SaveStrategy.SaveAs -> SaveExecutionMode.SaveAs
@@ -508,7 +532,7 @@ class PdfBoxWriteEngine(
 
     private fun drawAnnotationText(stream: PDPageContentStream, bounds: PdfRect, annotation: AnnotationModel) {
         val font = PDType1Font.HELVETICA
-        val lines = annotation.text.ifBlank { annotation.commentThread.subject.ifBlank { "Text" } }.split('\n')
+        val lines = annotation.text.ifBlank { annotation.commentThread.subject.ifBlank { "Text" } }.split("\n")
         var y = bounds.top - annotation.fontSizeSp
         lines.forEach { line ->
             stream.beginText()
@@ -538,7 +562,7 @@ class PdfBoxWriteEngine(
             FontFamilyToken.Serif -> PDType1Font.TIMES_ROMAN
             FontFamilyToken.Monospace -> PDType1Font.COURIER
         }
-        val lines = edit.text.split('\n')
+        val lines = edit.text.split("\n")
         val lineHeight = edit.fontSizeSp * edit.lineSpacingMultiplier
         val color = parseColor(edit.textColorHex)
         stream.saveGraphicsState()
@@ -591,9 +615,15 @@ class PdfBoxWriteEngine(
         )
     }
 
-    private fun buildSessionPayload(document: DocumentModel, exportMode: AnnotationExportMode, transactionId: String): PdfMutationSessionPayload {
+    private fun buildSessionPayload(
+        document: DocumentModel,
+        exportMode: AnnotationExportMode,
+        transactionId: String,
+        legacyMigrated: Boolean,
+    ): PdfMutationSessionPayload {
         val editObjects = document.pages.flatMap { page -> page.editObjects.map { it.withPage(page.index) } }
         val checksum = sha256(json.encodeToString(ListSerializer(PageEditModel.serializer()), editObjects))
+        val integrity = if (legacyMigrated) MutationIntegrityStatus.LegacyMigrated else MutationIntegrityStatus.Verified
         return PdfMutationSessionPayload(
             schemaVersion = SCHEMA_VERSION,
             documentKey = document.documentRef.sourceKey,
@@ -601,18 +631,27 @@ class PdfBoxWriteEngine(
             editObjects = editObjects,
             transactionId = transactionId,
             updatedAtEpochMillis = System.currentTimeMillis(),
-            legacySidecarMigrated = resolveLegacySidecar(document.documentRef)?.exists() == true,
-            integrity = if (resolveLegacySidecar(document.documentRef)?.exists() == true) MutationIntegrityStatus.LegacyMigrated else MutationIntegrityStatus.Verified,
+            legacySidecarMigrated = legacyMigrated,
+            integrity = integrity,
             checksumSha256 = checksum,
         )
     }
 
-    private fun buildTransactionEntries(document: DocumentModel, exportMode: AnnotationExportMode, structuralMutationApplied: Boolean): List<PdfMutationTransactionEntry> {
+    private fun buildTransactionEntries(
+        document: DocumentModel,
+        exportMode: AnnotationExportMode,
+        structuralMutationApplied: Boolean,
+        legacyMigrated: Boolean,
+    ): List<PdfMutationTransactionEntry> {
         val now = System.currentTimeMillis()
         val entries = mutableListOf<PdfMutationTransactionEntry>()
+        if (legacyMigrated) {
+            entries += PdfMutationTransactionEntry(UUID.randomUUID().toString(), "migration", "Migrated legacy page-edit sidecar into mutation session", emptyList(), now)
+        }
         if (structuralMutationApplied) {
             entries += PdfMutationTransactionEntry(UUID.randomUUID().toString(), "structural", "Applied structural page mutations", document.pages.map { it.index }, now)
         }
+
         val textCount = document.pages.sumOf { page -> page.editObjects.count { it is TextBoxEditModel } }
         if (textCount > 0) {
             entries += PdfMutationTransactionEntry(UUID.randomUUID().toString(), "text", "Persisted $textCount text edit objects", document.pages.filter { page -> page.editObjects.any { it is TextBoxEditModel } }.map { it.index }, now)
@@ -630,35 +669,49 @@ class PdfBoxWriteEngine(
         return entries
     }
 
-    private fun writeLegacyMirror(document: DocumentModel, exportMode: AnnotationExportMode, sidecar: File) {
-        if (exportMode == AnnotationExportMode.Editable) {
-            val payload = PageEditSidecarPayload(
-                documentKey = document.documentRef.sourceKey,
-                editObjects = document.pages.flatMap { page -> page.editObjects.map { it.withPage(page.index) } },
-                updatedAtEpochMillis = System.currentTimeMillis(),
-            )
-            sidecar.writeText(json.encodeToString(PageEditSidecarPayload.serializer(), payload))
-        } else {
-            sidecar.takeIf { it.exists() }?.delete()
+    private fun verifySessionFile(sessionFile: File, sessionPayload: PdfMutationSessionPayload) {
+        val readBack = readSession(sessionFile)?.first ?: error("Mutation session could not be reloaded after save.")
+        require(readBack.checksumSha256 == sessionPayload.checksumSha256) { "Mutation session checksum mismatch." }
+    }
+
+    private fun hasArchivedLegacySidecar(destinationPdf: File): Boolean {
+        return File(destinationPdf.absolutePath + LEGACY_ARCHIVE_SUFFIX).exists()
+    }
+
+    private fun archiveLegacySidecar(file: File?) {
+        if (file == null || !file.exists()) return
+        val archive = File(file.absolutePath + LEGACY_ARCHIVE_SUFFIX)
+        file.copyTo(archive, overwrite = true)
+        file.delete()
+    }
+
+    private fun backupFile(file: File) {
+        if (file.exists()) {
+            file.copyTo(file.backupFile(), overwrite = true)
         }
     }
 
-    private fun backupSidecar(file: File) {
-        if (file.exists()) {
-            file.copyTo(File(file.absolutePath + ".bak"), overwrite = true)
+    private fun restoreFileFromBackup(backup: File, target: File) {
+        when {
+            backup.exists() -> backup.copyTo(target, overwrite = true)
+            target.exists() -> target.delete()
         }
+    }
+
+    private fun cleanupBackup(file: File) {
+        file.takeIf { it.exists() }?.delete()
     }
 
     private fun resolveMutationSession(documentRef: PdfDocumentRef): File? {
         val targetFile = resolveTargetPdf(documentRef)
-        val mutation = File(targetFile.absolutePath + ".mutations.json")
+        val mutation = File(targetFile.absolutePath + SESSION_SUFFIX)
         return mutation.takeIf { it.exists() || it.parentFile?.exists() == true }
     }
 
     private fun resolveLegacySidecar(documentRef: PdfDocumentRef): File? {
         val targetFile = resolveTargetPdf(documentRef)
-        val explicit = File(targetFile.absolutePath + ".pageedits.json")
-        val working = File(documentRef.workingCopyPath + ".pageedits.json")
+        val explicit = File(targetFile.absolutePath + LEGACY_SIDECAR_SUFFIX)
+        val working = File(documentRef.workingCopyPath + LEGACY_SIDECAR_SUFFIX)
         return when {
             explicit.exists() -> explicit
             working.exists() -> working
@@ -691,8 +744,17 @@ class PdfBoxWriteEngine(
         return bytes.joinToString(separator = "") { "%02x".format(it) }
     }
 
+    private fun File.backupFile(): File = File(absolutePath + BACKUP_SUFFIX)
+
     companion object {
-        private const val SCHEMA_VERSION = 2
+        private const val SCHEMA_VERSION = 3
+        private const val SESSION_SUFFIX = ".mutations.json"
+        private const val TRANSACTION_SUFFIX = ".mutationlog.json"
+        private const val LEGACY_SIDECAR_SUFFIX = ".pageedits.json"
+        private const val LEGACY_ARCHIVE_SUFFIX = ".legacy-migrated"
+        private const val LOCK_SUFFIX = ".saving.lock"
+        private const val TEMP_SUFFIX = ".tmp"
+        private const val BACKUP_SUFFIX = ".bak"
     }
 }
 
@@ -721,5 +783,15 @@ private inline fun <T> Iterable<T>.anyIndexed(predicate: (Int, T) -> Boolean): B
     }
     return false
 }
+
+
+
+
+
+
+
+
+
+
 
 

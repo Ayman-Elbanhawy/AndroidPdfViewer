@@ -29,6 +29,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.aymanelbanhawy.editor.core.connectors.ConnectorAccountDraft
 import com.aymanelbanhawy.editor.core.connectors.ConnectorAccountModel
@@ -77,7 +80,7 @@ fun SettingsAdminSidebar(
     var issuerBaseUrl by remember(state.tenantConfiguration.issuerBaseUrl) { mutableStateOf(state.tenantConfiguration.issuerBaseUrl) }
     var remoteBootstrap by remember(state.tenantConfiguration.bootstrapMode) { mutableStateOf(state.tenantConfiguration.bootstrapMode == EnterpriseBootstrapMode.Remote) }
 
-    Surface(modifier = modifier, tonalElevation = 2.dp) {
+    Surface(modifier = modifier.semantics { paneTitle = "Settings and admin panel" }, tonalElevation = 2.dp) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -85,7 +88,7 @@ fun SettingsAdminSidebar(
             item {
                 Card {
                     Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("Authentication", style = MaterialTheme.typography.titleMedium)
+                        Text("Authentication", style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
                         Text("Mode: ${state.authSession.mode.name} | ${state.authSession.status.name}")
                         Text("Policy: ${state.policySync.policyVersion}  ETag: ${state.policySync.policyEtag ?: "-"}")
                         OutlinedTextField(value = personalName, onValueChange = { personalName = it }, label = { Text("Personal display name") }, modifier = Modifier.fillMaxWidth())
@@ -123,7 +126,7 @@ fun SettingsAdminSidebar(
             item {
                 Card {
                     Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("Tenant + License", style = MaterialTheme.typography.titleMedium)
+                        Text("Tenant + License", style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
                         Text("Tenant: ${state.tenantConfiguration.tenantName}")
                         Text("Tenant ID: ${state.tenantConfiguration.tenantId}")
                         Text("Bootstrap: ${state.tenantConfiguration.bootstrapMode.name}")
@@ -140,7 +143,7 @@ fun SettingsAdminSidebar(
             item {
                 Card {
                     Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Entitlements", style = MaterialTheme.typography.titleMedium)
+                        Text("Entitlements", style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
                         FeatureFlag.entries.forEach { flag ->
                             Text("${flag.name}: ${flag in entitlements.features}", style = MaterialTheme.typography.bodySmall)
                         }
@@ -161,7 +164,7 @@ fun SettingsAdminSidebar(
             item {
                 Card {
                     Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Admin Policy", style = MaterialTheme.typography.titleMedium)
+                        Text("Admin Policy", style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
                         ToggleRow("Restrict export", state.adminPolicy.restrictExport) { onUpdatePolicy(state.adminPolicy.copy(restrictExport = it)) }
                         ToggleRow("Restrict print", state.adminPolicy.restrictPrint) { onUpdatePolicy(state.adminPolicy.copy(restrictPrint = it)) }
                         ToggleRow("Restrict copy", state.adminPolicy.restrictCopy) { onUpdatePolicy(state.adminPolicy.copy(restrictCopy = it)) }
@@ -180,7 +183,7 @@ fun SettingsAdminSidebar(
             item {
                 Card {
                     Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Privacy + Telemetry", style = MaterialTheme.typography.titleMedium)
+                        Text("Privacy + Telemetry", style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
                         ToggleRow("Telemetry enabled", state.privacySettings.telemetryEnabled) { onUpdatePrivacy(state.privacySettings.copy(telemetryEnabled = it)) }
                         ToggleRow("Include document names", state.privacySettings.includeDocumentNames) { onUpdatePrivacy(state.privacySettings.copy(includeDocumentNames = it)) }
                         ToggleRow("Include diagnostics", state.privacySettings.includeDiagnostics) { onUpdatePrivacy(state.privacySettings.copy(includeDiagnostics = it)) }
@@ -214,3 +217,4 @@ private fun ToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
+

@@ -145,6 +145,8 @@ class DefaultSecurityRepository(
         val file = File(document.documentRef.workingCopyPath)
         val metadataSummary = linkedMapOf<String, String>()
         val embeddedContentFlags = mutableListOf<String>()
+        val protectionFlags = mutableListOf<String>()
+        val signatureStatusSummary = linkedMapOf<String, String>()
         var hiddenAnnotationCount = 0
         val appliedRedactions = document.security.redactionWorkflow.marks.count { it.status == RedactionStatus.Applied }
         val totalRedactions = document.security.redactionWorkflow.marks.size
@@ -159,7 +161,9 @@ class DefaultSecurityRepository(
                 metadataSummary["keywords"] = info.keywords.orEmpty()
                 metadataSummary["creator"] = info.creator.orEmpty()
                 metadataSummary["producer"] = info.producer.orEmpty()
-                if (!pdDocument.isEncrypted) {
+                if (pdDocument.isEncrypted) {
+                    protectionFlags += "password-protected"
+                } else {
                     findings += InspectionFindingModel("encryption", "Document Not Password Protected", "The file can be opened without a password.", InspectionSeverity.Warning)
                 }
                 if (metadataSummary.values.any { it.isNotBlank() }) {
@@ -174,15 +178,32 @@ class DefaultSecurityRepository(
                     embeddedContentFlags += "embedded-files"
                     findings += InspectionFindingModel("embedded-content", "Embedded content present", "The document includes embedded files or attachment name trees.", InspectionSeverity.Warning)
                 }
+                if (pdDocument.currentAccessPermission != null) {
+                    val permission = pdDocument.currentAccessPermission
+                    if (!permission.canPrint()) protectionFlags += "print-blocked"
+                    if (!permission.canExtractContent()) protectionFlags += "copy-blocked"
+                    if (!permission.canModify()) protectionFlags += "export-blocked"
+                }
             }
         }
         if (document.security.redactionWorkflow.marks.any { it.status == RedactionStatus.Marked }) {
             findings += InspectionFindingModel("redaction-pending", "Pending Redactions", "There are marked redactions that have not been irreversibly applied.", InspectionSeverity.Critical)
         }
         if (document.security.watermark.enabled) {
+            protectionFlags += "watermark"
             findings += InspectionFindingModel("watermark", "Watermark Enabled", "A visible watermark will be included in exports.", InspectionSeverity.Info)
         }
+        if (document.security.metadataScrub.enabled) {
+            protectionFlags += "metadata-scrub"
+        }
+        if (appliedRedactions > 0) {
+            protectionFlags += "redactions-applied"
+        }
         digitalSignatureService?.verifyDocument(file, document.security.passwordProtection.userPassword.takeIf { document.security.passwordProtection.enabled && it.isNotBlank() })?.forEach { (fieldName, verification) ->
+            signatureStatusSummary[fieldName] = verification.verificationStatus.name
+            if (verification.verificationStatus != SignatureVerificationStatus.Unsigned) {
+                protectionFlags += "digitally-signed"
+            }
             val severity = when (verification.verificationStatus) {
                 SignatureVerificationStatus.Verified -> InspectionSeverity.Info
                 SignatureVerificationStatus.Signed -> InspectionSeverity.Warning
@@ -203,6 +224,8 @@ class DefaultSecurityRepository(
             hiddenAnnotationCount = hiddenAnnotationCount,
             embeddedContentFlags = embeddedContentFlags,
             redactionCoverageSummary = "$appliedRedactions of $totalRedactions redaction region(s) were irreversibly applied.",
+            protectionFlags = protectionFlags.distinct(),
+            signatureStatusSummary = signatureStatusSummary,
         )
         persistDocumentSecurity(document.documentRef.sourceKey, document.security.copy(inspectionReport = report))
         recordAudit(
@@ -218,7 +241,6 @@ class DefaultSecurityRepository(
         )
         return report
     }
-
     override fun evaluatePolicy(security: SecurityDocumentModel, action: RestrictedAction): PolicyDecision {
         val blockedByTenant = when (action) {
             RestrictedAction.Print -> security.tenantPolicy.disablePrint
@@ -308,4 +330,5 @@ private fun AuditTrailEventEntity.toModel(json: Json): AuditTrailEventModel = Au
     createdAtEpochMillis = createdAtEpochMillis,
     metadata = json.decodeFromString(MapSerializer(String.serializer(), String.serializer()), metadataJson),
 )
+
 

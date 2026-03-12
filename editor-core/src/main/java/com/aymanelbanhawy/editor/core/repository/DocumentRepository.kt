@@ -44,6 +44,7 @@ import com.aymanelbanhawy.editor.core.security.PasswordProtectionModel
 import com.aymanelbanhawy.editor.core.security.RedactionMarkModel
 import com.aymanelbanhawy.editor.core.security.RedactionStatus
 import com.aymanelbanhawy.editor.core.security.SecureFileCipher
+import com.aymanelbanhawy.editor.core.security.SavedDocumentSecurityProcessor
 import com.aymanelbanhawy.editor.core.security.SecurityDocumentModel
 import com.aymanelbanhawy.editor.core.security.SecurityRepository
 import com.aymanelbanhawy.editor.core.security.WatermarkModel
@@ -118,6 +119,8 @@ class DefaultDocumentRepository(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : DocumentRepository {
 
+    private val securityProcessor = SavedDocumentSecurityProcessor(securityRepository, digitalSignatureService, ioDispatcher)
+
     init {
         PDFBoxResourceLoader.init(context)
     }
@@ -150,15 +153,17 @@ class DefaultDocumentRepository(
         }
         val annotations = annotationPersistenceGateway.load(opened.documentRef)
         val pageEdits = pdfWriteEngine.load(opened.documentRef)
-        val document = opened.copy(
-            pages = opened.pages.map { page ->
-                page.copy(
-                    annotations = annotations[page.index].orEmpty(),
-                    editObjects = pageEdits[page.index].orEmpty(),
-                )
-            },
-            formDocument = detectForms(opened.documentRef.workingCopyPath),
-            security = loadSecurity(opened.documentRef.sourceKey),
+        val document = securityProcessor.decorateOpenedDocument(
+            opened.copy(
+                pages = opened.pages.map { page ->
+                    page.copy(
+                        annotations = annotations[page.index].orEmpty(),
+                        editObjects = pageEdits[page.index].orEmpty(),
+                    )
+                },
+                formDocument = detectForms(opened.documentRef.workingCopyPath),
+                security = loadSecurity(opened.documentRef.sourceKey),
+            ),
         )
         recentDocumentDao.upsert(RecentDocumentEntity(document.documentRef.sourceKey, document.documentRef.displayName, document.documentRef.sourceType.name, document.documentRef.workingCopyPath, now))
         diagnosticsRepository?.recordDocumentOpen(document, System.currentTimeMillis() - startedAt)
@@ -216,8 +221,7 @@ class DefaultDocumentRepository(
         val ref = document.documentRef
         val workingFile = File(ref.workingCopyPath)
         val mutationResult = pdfWriteEngine.persist(document, workingFile, exportMode, SaveStrategy.IncrementalPreferred)
-        applyFormData(document, workingFile, exportMode)
-        applySecurity(document.security, workingFile)
+        val securedDocument = securityProcessor.applyWriteThroughSecurity(document, workingFile, exportMode)
         verifyFileIntegrity(workingFile)
         val destination = when (ref.sourceType) {
             DocumentSourceType.File -> File(ref.sourceKey).also {
@@ -225,12 +229,12 @@ class DefaultDocumentRepository(
             }
             else -> workingFile
         }
-        annotationPersistenceGateway.persist(document, destination, exportMode)
+        annotationPersistenceGateway.persist(securedDocument, destination, exportMode)
         ocrSessionStore.copySidecar(document.documentRef, destination)
-        persistSecurity(destination.absolutePath, document.security)
+        persistSecurity(destination.absolutePath, securedDocument.security)
         clearDraft(ref.sourceKey)
-        diagnosticsRepository?.recordSave(document, System.currentTimeMillis() - startedAt, true, destination.length(), mutationResult.pdfSha256)
-        document.copy(
+        diagnosticsRepository?.recordSave(securedDocument, System.currentTimeMillis() - startedAt, true, destination.length(), mutationResult.pdfSha256)
+        securedDocument.copy(
             dirtyState = DirtyState(isDirty = false, saveMessage = "Saved (${exportMode.name.lowercase()})"),
             lastSavedAtEpochMillis = System.currentTimeMillis(),
         )
@@ -240,22 +244,21 @@ class DefaultDocumentRepository(
         val startedAt = System.currentTimeMillis()
         destination.parentFile?.mkdirs()
         val mutationResult = pdfWriteEngine.persist(document, destination, exportMode, SaveStrategy.SaveAs)
-        applyFormData(document, destination, exportMode)
-        applySecurity(document.security, destination)
+        val securedDocument = securityProcessor.applyWriteThroughSecurity(document, destination, exportMode)
         verifyFileIntegrity(destination)
-        annotationPersistenceGateway.persist(document, destination, exportMode)
+        annotationPersistenceGateway.persist(securedDocument, destination, exportMode)
         ocrSessionStore.copySidecar(document.documentRef, destination)
-        persistSecurity(destination.absolutePath, document.security)
+        persistSecurity(destination.absolutePath, securedDocument.security)
         clearDraft(document.documentRef.sourceKey)
-        diagnosticsRepository?.recordSave(document, System.currentTimeMillis() - startedAt, true, destination.length(), mutationResult.pdfSha256)
-        val updatedRef = document.documentRef.copy(
+        diagnosticsRepository?.recordSave(securedDocument, System.currentTimeMillis() - startedAt, true, destination.length(), mutationResult.pdfSha256)
+        val updatedRef = securedDocument.documentRef.copy(
             uriString = Uri.fromFile(destination).toString(),
             displayName = destination.name,
             sourceType = DocumentSourceType.File,
             sourceKey = destination.absolutePath,
             workingCopyPath = destination.absolutePath,
         )
-        document.copy(
+        securedDocument.copy(
             documentRef = updatedRef,
             dirtyState = DirtyState(isDirty = false, saveMessage = "Saved as ${destination.name} (${exportMode.name.lowercase()})"),
             lastSavedAtEpochMillis = System.currentTimeMillis(),
@@ -283,12 +286,11 @@ class DefaultDocumentRepository(
             )
             val file = File(outputDirectory, "${document.documentRef.displayName.removeSuffix(".pdf")}_part_${index + 1}.pdf")
             pdfWriteEngine.persist(extracted, file, AnnotationExportMode.Editable, SaveStrategy.ExportCopy)
-            applyFormData(extracted, file, AnnotationExportMode.Editable)
-            applySecurity(extracted.security, file)
+            val securedExtracted = securityProcessor.applyWriteThroughSecurity(extracted, file, AnnotationExportMode.Editable)
             verifyFileIntegrity(file)
-            annotationPersistenceGateway.persist(extracted, file, AnnotationExportMode.Editable)
+            annotationPersistenceGateway.persist(securedExtracted, file, AnnotationExportMode.Editable)
             ocrSessionStore.copySidecar(document.documentRef, file)
-            persistSecurity(file.absolutePath, extracted.security)
+            persistSecurity(file.absolutePath, securedExtracted.security)
             file
         }
     }
@@ -538,3 +540,10 @@ private data class AnnotationSidecarPayload(
     val annotations: List<AnnotationModel>,
     val updatedAtEpochMillis: Long,
 )
+
+
+
+
+
+
+

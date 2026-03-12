@@ -44,7 +44,7 @@ enum class CollaborationScope {
 
 @Serializable
 data class CollaborationServiceConfig(
-    val backendMode: CollaborationBackendMode = CollaborationBackendMode.LocalEmulator,
+    val backendMode: CollaborationBackendMode = CollaborationBackendMode.RemoteHttp,
     val baseUrl: String = "",
     val apiPath: String = "/v1/collaboration",
     val connectTimeoutMillis: Long = 15_000,
@@ -97,6 +97,7 @@ enum class FeatureFlag {
 @Serializable
 enum class CloudConnector {
     LocalFiles,
+    S3Compatible,
     GoogleDrive,
     OneDrive,
     SharePoint,
@@ -105,6 +106,13 @@ enum class CloudConnector {
     DocumentProvider,
 }
 
+
+@Serializable
+enum class AiDocumentScopePolicy {
+    CurrentDocumentOnly,
+    PinnedDocumentsOnly,
+    RecentDocuments,
+}
 @Serializable
 data class AdminPolicyModel(
     val retentionDays: Int = 30,
@@ -113,6 +121,12 @@ data class AdminPolicyModel(
     val restrictCopy: Boolean = false,
     val forcedWatermarkText: String = "",
     val allowedCloudConnectors: List<CloudConnector> = listOf(CloudConnector.LocalFiles),
+    val allowedDestinationPatterns: List<String> = emptyList(),
+    val approvedAiProviderIds: List<String> = emptyList(),
+    val allowCloudMultiDocumentAi: Boolean = false,
+    val maxAiWorkspaceDocuments: Int = 5,
+    val aiHistoryRetentionDays: Int = 30,
+    val aiDocumentScope: AiDocumentScopePolicy = AiDocumentScopePolicy.PinnedDocumentsOnly,
     val aiEnabled: Boolean = false,
     val allowCloudAiProviders: Boolean = false,
     val allowCollaborationSync: Boolean = true,
@@ -283,3 +297,4 @@ data class TelemetryBatchUploadResponse(
     val rejectedIds: List<String> = emptyList(),
     val serverTimestampEpochMillis: Long,
 )
+

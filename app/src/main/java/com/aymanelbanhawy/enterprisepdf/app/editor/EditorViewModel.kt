@@ -96,6 +96,14 @@ import com.aymanelbanhawy.editor.core.security.RedactionStatus
 import com.aymanelbanhawy.editor.core.security.RestrictedAction
 import com.aymanelbanhawy.editor.core.security.TenantPolicyHooksModel
 import com.aymanelbanhawy.editor.core.security.WatermarkModel
+import com.aymanelbanhawy.editor.core.workflow.CompareReportModel
+import com.aymanelbanhawy.editor.core.workflow.FormTemplateModel
+import com.aymanelbanhawy.editor.core.workflow.WorkflowRecipientModel
+import com.aymanelbanhawy.editor.core.workflow.WorkflowRecipientRole
+import com.aymanelbanhawy.editor.core.workflow.WorkflowRequestModel
+import com.aymanelbanhawy.editor.core.workflow.WorkflowResponseModel
+import com.aymanelbanhawy.editor.core.workflow.WorkflowRequestStatus
+import com.aymanelbanhawy.editor.core.workflow.WorkflowStateModel
 import com.aymanelbanhawy.editor.core.session.EditorSession
 import com.aymanelbanhawy.editor.core.session.EditorSessionEvent
 import com.aymanelbanhawy.editor.core.runtime.RuntimeLogLevel
@@ -107,9 +115,11 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -178,6 +188,7 @@ data class EditorUiState(
     val connectorJobs: List<ConnectorTransferJobModel> = emptyList(),
     val connectorExportDialog: ConnectorExportUiState? = null,
     val runtimeDiagnostics: RuntimeDiagnosticsSnapshot = RuntimeDiagnosticsSnapshot(),
+    val workflowState: WorkflowStateModel = WorkflowStateModel(),
 ) {
     val selectedAnnotation: AnnotationModel?
         get() = session.document?.pages?.flatMap { it.annotations }?.firstOrNull { it.id in session.selection.selectedAnnotationIds }
@@ -244,6 +255,7 @@ class EditorViewModel(
     private val connectorJobs = MutableStateFlow(emptyList<ConnectorTransferJobModel>())
     private val connectorExportDialog = MutableStateFlow<ConnectorExportUiState?>(null)
     private val runtimeDiagnostics = MutableStateFlow(RuntimeDiagnosticsSnapshot())
+    private val workflowState = MutableStateFlow(WorkflowStateModel())
     private val assistantState = MutableStateFlow(AssistantUiState())
     private val localEvents = MutableSharedFlow<EditorSessionEvent>(extraBufferCapacity = 16)
     private val indexingPolicy = IndexingPolicy()
@@ -288,6 +300,7 @@ class EditorViewModel(
         connectorJobs,
         connectorExportDialog,
         runtimeDiagnostics,
+        workflowState,
     ) { values ->
         EditorUiState(
             session = values[0] as EditorSessionState,
@@ -328,18 +341,23 @@ class EditorViewModel(
             connectorJobs = values[35] as List<ConnectorTransferJobModel>,
             connectorExportDialog = values[36] as ConnectorExportUiState?,
             runtimeDiagnostics = values[37] as RuntimeDiagnosticsSnapshot,
+            workflowState = values[38] as WorkflowStateModel,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EditorUiState())
 
     val events: Flow<EditorSessionEvent> = merge(session.events, localEvents)
 
     init {
+        observeDocumentOcrState()
         viewModelScope.launch {
+            ocrSettings.value = appContainer.ocrJobPipeline.loadSettings()
+            scanImportOptions.value = scanImportOptions.value.copy(ocrSettings = ocrSettings.value)
             session.openDocument(appContainer.seedDocumentRequest())
             refreshThumbnails()
             refreshFormSupportData()
             refreshSearchSupportData(forceSync = true)
             refreshCollaborationData()
+            refreshWorkflowData()
             refreshSecurityData()
             refreshEnterpriseData()
             refreshDiagnosticsData()
@@ -522,6 +540,56 @@ class EditorViewModel(
         }
     }
 
+    fun askWorkspaceWithAi() {
+        viewModelScope.launch {
+            appContainer.aiAssistantRepository.askAcrossWorkspace(session.state.value.document, assistantState.value.prompt.ifBlank { "What are the key findings across these documents?" }, entitlements.value, enterpriseState.value)
+            assistantState.value = appContainer.aiAssistantRepository.state.value
+        }
+    }
+
+    fun summarizeWorkspaceWithAi() {
+        viewModelScope.launch {
+            appContainer.aiAssistantRepository.summarizeWorkspace(session.state.value.document, entitlements.value, enterpriseState.value)
+            assistantState.value = appContainer.aiAssistantRepository.state.value
+        }
+    }
+
+    fun compareWorkspaceWithAi() {
+        viewModelScope.launch {
+            appContainer.aiAssistantRepository.compareAndSummarizeWorkspace(session.state.value.document, entitlements.value, enterpriseState.value)
+            assistantState.value = appContainer.aiAssistantRepository.state.value
+        }
+    }
+
+    fun pinCurrentDocumentToAiWorkspace() {
+        val document = session.state.value.document ?: return
+        viewModelScope.launch {
+            appContainer.aiAssistantRepository.pinDocument(document)
+            assistantState.value = appContainer.aiAssistantRepository.state.value
+        }
+    }
+
+    fun toggleAiWorkspaceDocument(documentKey: String, selected: Boolean) {
+        viewModelScope.launch {
+            appContainer.aiAssistantRepository.toggleWorkspaceDocument(documentKey, selected)
+            assistantState.value = appContainer.aiAssistantRepository.state.value
+        }
+    }
+
+    fun unpinAiWorkspaceDocument(documentKey: String) {
+        viewModelScope.launch {
+            appContainer.aiAssistantRepository.unpinDocument(documentKey)
+            assistantState.value = appContainer.aiAssistantRepository.state.value
+        }
+    }
+
+    fun saveAiWorkspaceDocumentSet(title: String) {
+        viewModelScope.launch {
+            appContainer.aiAssistantRepository.saveWorkspaceDocumentSet(title)
+            assistantState.value = appContainer.aiAssistantRepository.state.value
+        }
+    }
+
     fun updateAssistantPrivacyMode(mode: AssistantPrivacyMode) {
         viewModelScope.launch {
             appContainer.aiAssistantRepository.updateSettings(assistantState.value.settings.copy(privacyMode = mode))
@@ -543,7 +611,43 @@ class EditorViewModel(
     }
     fun showScanImportDialog() { scanImportVisible.value = true }
     fun dismissScanImportDialog() { scanImportVisible.value = false }
-    fun updateScanImportOptions(options: ScanImportOptions) { scanImportOptions.value = options }
+    fun updateScanImportOptions(options: ScanImportOptions) {
+        scanImportOptions.value = options
+        ocrSettings.value = options.ocrSettings
+    }
+    fun updateOcrSettings(settings: OcrSettingsModel) {
+        ocrSettings.value = settings
+        scanImportOptions.value = scanImportOptions.value.copy(ocrSettings = settings)
+    }
+    fun saveOcrSettings() {
+        viewModelScope.launch {
+            appContainer.ocrJobPipeline.saveSettings(ocrSettings.value)
+            scanImportOptions.value = scanImportOptions.value.copy(ocrSettings = ocrSettings.value)
+            localEvents.emit(EditorSessionEvent.UserMessage("Saved OCR settings"))
+        }
+    }
+    fun pauseOcr(pageIndex: Int? = null) {
+        val documentKey = session.state.value.document?.documentRef?.sourceKey ?: return
+        viewModelScope.launch {
+            appContainer.ocrJobPipeline.pause(documentKey, pageIndex)
+            localEvents.emit(EditorSessionEvent.UserMessage(if (pageIndex == null) "Paused OCR jobs" else "Paused OCR for page ${pageIndex + 1}"))
+        }
+    }
+    fun resumeOcr(pageIndex: Int? = null) {
+        val documentKey = session.state.value.document?.documentRef?.sourceKey ?: return
+        viewModelScope.launch {
+            appContainer.ocrJobPipeline.resume(documentKey, pageIndex)
+            localEvents.emit(EditorSessionEvent.UserMessage(if (pageIndex == null) "Resumed OCR jobs" else "Resumed OCR for page ${pageIndex + 1}"))
+        }
+    }
+    fun rerunOcr(pageIndex: Int? = null) {
+        val documentKey = session.state.value.document?.documentRef?.sourceKey ?: return
+        viewModelScope.launch {
+            appContainer.ocrJobPipeline.rerun(documentKey, pageIndex)
+            localEvents.emit(EditorSessionEvent.UserMessage(if (pageIndex == null) "Queued OCR re-run for all pages" else "Queued OCR re-run for page ${pageIndex + 1}"))
+        }
+    }
+    fun openOcrPage(pageIndex: Int) { openOutlineItem(pageIndex) }
     fun updateReviewFilter(filter: ReviewFilterModel) { reviewFilter.value = filter; refreshCollaborationAsync() }
 
     fun createShareLink() {
@@ -599,10 +703,109 @@ class EditorViewModel(
         viewModelScope.launch {
             val summary = appContainer.collaborationRepository.processSync(document.documentRef.sourceKey)
             refreshCollaborationData()
-            localEvents.emit(EditorSessionEvent.UserMessage("Sync processed ${summary.processedCount} operation(s)"))
+            refreshWorkflowData()
+            localEvents.emit(EditorSessionEvent.UserMessage("Sync processed  operation(s)"))
         }
     }
 
+    fun compareAgainstLatestSnapshot() {
+        val document = session.state.value.document ?: return
+        val snapshot = versionSnapshots.value.firstOrNull() ?: run {
+            localEvents.tryEmit(EditorSessionEvent.UserMessage("Create a snapshot first"))
+            return
+        }
+        viewModelScope.launch {
+            runCatching { appContainer.workflowRepository.compareWithSnapshot(document, snapshot.snapshotPath, snapshot.label) }
+                .onSuccess {
+                    refreshWorkflowData()
+                    localEvents.emit(EditorSessionEvent.UserMessage("Compared against "))
+                }
+                .onFailure { localEvents.emit(EditorSessionEvent.UserMessage(it.message ?: "Compare failed")) }
+        }
+    }
+
+    fun createCurrentFormTemplate(name: String) {
+        val document = session.state.value.document ?: return
+        viewModelScope.launch {
+            runCatching { appContainer.workflowRepository.createFormTemplate(document, name) }
+                .onSuccess {
+                    refreshWorkflowData()
+                    localEvents.emit(EditorSessionEvent.UserMessage("Saved template "))
+                }
+                .onFailure { localEvents.emit(EditorSessionEvent.UserMessage(it.message ?: "Unable to save template")) }
+        }
+    }
+
+    fun createSignatureRequest(recipientCsv: String) {
+        val document = session.state.value.document ?: return
+        val recipients = recipientCsv.split(',', ';').mapNotNull { token ->
+            val email = token.trim()
+            if (email.isBlank()) null else WorkflowRecipientModel(email = email, displayName = email.substringBefore('@'), role = WorkflowRecipientRole.Signer, order = 1)
+        }
+        viewModelScope.launch {
+            runCatching {
+                appContainer.workflowRepository.createSignatureRequest(
+                    document,
+                    "Signature Request ",
+                    recipients.distinctBy { it.email }.mapIndexed { index, recipient -> recipient.copy(order = index + 1) },
+                    3,
+                    System.currentTimeMillis() + 7L * 24L * 60L * 60L * 1000L,
+                )
+            }.onSuccess {
+                refreshWorkflowData()
+                localEvents.emit(EditorSessionEvent.UserMessage("Signature request sent"))
+            }.onFailure { localEvents.emit(EditorSessionEvent.UserMessage(it.message ?: "Unable to create signature request")) }
+        }
+    }
+
+    fun createFormRequest(templateId: String, recipientCsv: String) {
+        val document = session.state.value.document ?: return
+        val recipients = recipientCsv.split(',', ';').mapNotNull { token ->
+            val email = token.trim()
+            if (email.isBlank()) null else WorkflowRecipientModel(email = email, displayName = email.substringBefore('@'), role = WorkflowRecipientRole.Submitter, order = 1)
+        }
+        viewModelScope.launch {
+            runCatching {
+                appContainer.workflowRepository.createFormRequest(
+                    document,
+                    templateId,
+                    "Form Request ",
+                    recipients.distinctBy { it.email }.mapIndexed { index, recipient -> recipient.copy(order = index + 1) },
+                    3,
+                    System.currentTimeMillis() + 7L * 24L * 60L * 60L * 1000L,
+                )
+            }.onSuccess {
+                refreshWorkflowData()
+                localEvents.emit(EditorSessionEvent.UserMessage("Form request sent"))
+            }.onFailure { localEvents.emit(EditorSessionEvent.UserMessage(it.message ?: "Unable to create form request")) }
+        }
+    }
+
+    fun markWorkflowRequestCompleted(requestId: String) {
+        viewModelScope.launch {
+            val request = workflowState.value.requests.firstOrNull { it.id == requestId } ?: return@launch
+            val recipient = request.recipients.firstOrNull() ?: return@launch
+            appContainer.workflowRepository.updateRequestResponse(
+                requestId,
+                WorkflowResponseModel(
+                    recipientEmail = recipient.email,
+                    status = WorkflowRequestStatus.Completed,
+                    actedAtEpochMillis = System.currentTimeMillis(),
+                    note = "Completed in app",
+                    fieldValues = request.assignedFields.associate { it.fieldName to "completed" },
+                ),
+            )
+            refreshWorkflowData()
+        }
+    }
+
+    fun sendWorkflowReminder(requestId: String) {
+        viewModelScope.launch {
+            appContainer.workflowRepository.sendReminder(requestId)
+            refreshWorkflowData()
+            localEvents.emit(EditorSessionEvent.UserMessage("Reminder sent"))
+        }
+    }
     fun performSearch(queryOverride: String? = null) {
         val document = session.state.value.document ?: return
         val query = queryOverride ?: searchQuery.value
@@ -1439,6 +1642,40 @@ class EditorViewModel(
         }
     }
 
+    private fun observeDocumentOcrState() {
+        ocrObservationJob?.cancel()
+        ocrObservationJob = viewModelScope.launch {
+            session.state
+                .map { it.document?.documentRef?.sourceKey }
+                .distinctUntilChanged()
+                .collectLatest { documentKey ->
+                    if (documentKey.isNullOrBlank()) {
+                        ocrJobs.value = emptyList()
+                        return@collectLatest
+                    }
+                    ocrSettings.value = appContainer.ocrJobPipeline.loadSettings()
+                    scanImportOptions.value = scanImportOptions.value.copy(ocrSettings = ocrSettings.value)
+                    var completedCount = -1
+                    appContainer.ocrJobPipeline.observe(documentKey).collectLatest { jobs ->
+                        val nextCompleted = jobs.count { it.status == OcrJobStatus.Completed }
+                        val hadFreshCompletion = completedCount >= 0 && nextCompleted > completedCount
+                        completedCount = nextCompleted
+                        ocrJobs.value = jobs
+                        if (hadFreshCompletion) {
+                            session.state.value.document?.let { document ->
+                                if (searchQuery.value.isNotBlank()) {
+                                    searchResults.value = appContainer.documentSearchService.search(document, searchQuery.value)
+                                }
+                                if (activePanel.value == WorkspacePanel.Assistant) {
+                                    refreshAssistantData()
+                                }
+                            }
+                        }
+                    }
+                }
+        }
+    }
+
     private suspend fun refreshConnectorData() {
         connectorAccounts.value = appContainer.connectorRepository.accounts()
         connectorJobs.value = appContainer.connectorRepository.transferJobs()
@@ -1527,6 +1764,7 @@ class EditorViewModel(
         )
         securityAuditEvents.value = appContainer.securityRepository.auditEvents(documentKey)
     }
+
     private suspend fun refreshCollaborationData() {
         val document = session.state.value.document ?: return
         shareLinks.value = appContainer.collaborationRepository.shareLinks(document.documentRef.sourceKey)
@@ -1536,8 +1774,16 @@ class EditorViewModel(
         pendingSyncCount.value = appContainer.collaborationRepository.pendingSyncOperations(document.documentRef.sourceKey).size
     }
 
-    private fun refreshCollaborationAsync() { viewModelScope.launch { refreshCollaborationData() } }
+    private suspend fun refreshWorkflowData() {
+        val document = session.state.value.document ?: return
+        workflowState.value = WorkflowStateModel(
+            compareReports = appContainer.workflowRepository.compareReports(document.documentRef.sourceKey),
+            formTemplates = appContainer.workflowRepository.formTemplates(document.documentRef.sourceKey),
+            requests = appContainer.workflowRepository.workflowRequests(document.documentRef.sourceKey),
+        )
+    }
 
+    private fun refreshCollaborationAsync() { viewModelScope.launch { refreshCollaborationData(); refreshWorkflowData() } }
     private suspend fun recordActivity(type: ActivityEventType, summary: String, threadId: String? = null) {
         val document = session.state.value.document ?: return
         appContainer.collaborationRepository.recordActivity(
@@ -1595,6 +1841,16 @@ class EditorViewModel(
 }
 
 private fun Set<Int>.toggle(index: Int): Set<Int> = if (index in this) this - index else this + index
+
+
+
+
+
+
+
+
+
+
 
 
 

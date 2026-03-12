@@ -41,9 +41,9 @@ def flavorConfig = [
         environment          : 'dev',
         cleartextPermitted   : true,
         aiCloudDefault       : secureBoolean('DEV_AI_CLOUD_ENABLED', true),
-        collaborationBaseUrl : secureConfig('DEV_COLLAB_BASE_URL', 'https://dev-collab.example.invalid'),
+        collaborationBaseUrl : secureConfig('DEV_COLLAB_BASE_URL', ''),
         aiBaseUrl            : secureConfig('DEV_AI_BASE_URL', 'http://10.0.2.2:11434'),
-        tenantBaseUrl        : secureConfig('DEV_TENANT_BASE_URL', 'https://dev-tenant.example.invalid'),
+        tenantBaseUrl        : secureConfig('DEV_TENANT_BASE_URL', ''),
         defaultWatermark     : secureConfig('DEV_DEFAULT_WATERMARK', 'Internal Dev Build'),
     ],
     qa: [
@@ -53,9 +53,9 @@ def flavorConfig = [
         environment          : 'qa',
         cleartextPermitted   : true,
         aiCloudDefault       : secureBoolean('QA_AI_CLOUD_ENABLED', true),
-        collaborationBaseUrl : secureConfig('QA_COLLAB_BASE_URL', 'https://qa-collab.example.invalid'),
-        aiBaseUrl            : secureConfig('QA_AI_BASE_URL', 'https://qa-ai.example.invalid'),
-        tenantBaseUrl        : secureConfig('QA_TENANT_BASE_URL', 'https://qa-tenant.example.invalid'),
+        collaborationBaseUrl : secureConfig('QA_COLLAB_BASE_URL', ''),
+        aiBaseUrl            : secureConfig('QA_AI_BASE_URL', ''),
+        tenantBaseUrl        : secureConfig('QA_TENANT_BASE_URL', ''),
         defaultWatermark     : secureConfig('QA_DEFAULT_WATERMARK', 'QA Evaluation'),
     ],
     prod: [
@@ -65,9 +65,9 @@ def flavorConfig = [
         environment          : 'prod',
         cleartextPermitted   : false,
         aiCloudDefault       : secureBoolean('PROD_AI_CLOUD_ENABLED', false),
-        collaborationBaseUrl : secureConfig('PROD_COLLAB_BASE_URL', 'https://collab.example.invalid'),
-        aiBaseUrl            : secureConfig('PROD_AI_BASE_URL', 'https://ai.example.invalid'),
-        tenantBaseUrl        : secureConfig('PROD_TENANT_BASE_URL', 'https://tenant.example.invalid'),
+        collaborationBaseUrl : secureConfig('PROD_COLLAB_BASE_URL', ''),
+        aiBaseUrl            : secureConfig('PROD_AI_BASE_URL', ''),
+        tenantBaseUrl        : secureConfig('PROD_TENANT_BASE_URL', ''),
         defaultWatermark     : secureConfig('PROD_DEFAULT_WATERMARK', ''),
     ],
     enterpriseDemo: [
@@ -77,9 +77,9 @@ def flavorConfig = [
         environment          : 'enterprise-demo',
         cleartextPermitted   : true,
         aiCloudDefault       : secureBoolean('DEMO_AI_CLOUD_ENABLED', false),
-        collaborationBaseUrl : secureConfig('DEMO_COLLAB_BASE_URL', 'https://demo-collab.example.invalid'),
+        collaborationBaseUrl : secureConfig('DEMO_COLLAB_BASE_URL', ''),
         aiBaseUrl            : secureConfig('DEMO_AI_BASE_URL', 'http://10.0.2.2:11434'),
-        tenantBaseUrl        : secureConfig('DEMO_TENANT_BASE_URL', 'https://demo-tenant.example.invalid'),
+        tenantBaseUrl        : secureConfig('DEMO_TENANT_BASE_URL', ''),
         defaultWatermark     : secureConfig('DEMO_DEFAULT_WATERMARK', 'Enterprise Demo'),
     ],
 ]
@@ -105,7 +105,7 @@ android {
         buildConfigField 'boolean', 'SECURE_LOGGING_ENABLED', 'true'
         buildConfigField 'String', 'CERTIFICATE_PIN_SET', quoted(secureConfig('CERTIFICATE_PIN_SET', ''))
         buildConfigField 'boolean', 'ENABLE_MANAGED_CONFIG', 'true'
-        buildConfigField 'String', 'SUPPORT_BUNDLE_CONTACT', quoted(secureConfig('SUPPORT_BUNDLE_CONTACT', 'security@example.invalid'))
+        buildConfigField 'String', 'SUPPORT_BUNDLE_CONTACT', quoted(secureConfig('SUPPORT_BUNDLE_CONTACT', ''))
         manifestPlaceholders = [
             appLabel                : 'Enterprise PDF',
             appUsesCleartextTraffic : 'false',
@@ -324,17 +324,54 @@ tasks.register('generateSbom') {
 tasks.register('generateLicenseReport') {
     notCompatibleWithConfigurationCache('Uses declared dependency inventory reporting')
     group = 'reporting'
-    description = 'Generates a dependency inventory with license placeholders for enterprise review.'
+    description = 'Generates a dependency inventory with resolved production licenses.'
     outputs.file(layout.buildDirectory.file('reports/release/licenses.csv'))
     doLast {
-        def artifacts = project.configurations.getByName('implementation').allDependencies.sort { a, b ->
-            "${a.group ?: 'project'}:${a.name}:${a.version ?: 'unspecified'}" <=> "${b.group ?: 'project'}:${b.name}:${b.version ?: 'unspecified'}"
-        }
+        def knownLicenses = [
+            'project:editor-core': 'Internal-Proprietary',
+            'AndroidPdfViewerEnterprise:editor-core': 'Internal-Proprietary',
+            'project:ai-assistant': 'Internal-Proprietary',
+            'AndroidPdfViewerEnterprise:ai-assistant': 'Internal-Proprietary',
+            'project:viewer-engine': 'Apache-2.0',
+            'AndroidPdfViewerEnterprise:viewer-engine': 'Apache-2.0',
+            'androidx.core:core-ktx': 'Apache-2.0',
+            'androidx.activity:activity-compose': 'Apache-2.0',
+            'androidx.lifecycle:lifecycle-runtime-compose': 'Apache-2.0',
+            'androidx.lifecycle:lifecycle-viewmodel-compose': 'Apache-2.0',
+            'androidx.lifecycle:lifecycle-viewmodel-ktx': 'Apache-2.0',
+            'androidx.compose.ui:ui': 'Apache-2.0',
+            'androidx.compose.ui:ui-tooling-preview': 'Apache-2.0',
+            'androidx.compose.material3:material3': 'Apache-2.0',
+            'com.google.android.material:material': 'Apache-2.0',
+            'androidx.compose.material:material-icons-extended': 'Apache-2.0',
+            'androidx.work:work-runtime-ktx': 'Apache-2.0',
+            'androidx.biometric:biometric': 'Apache-2.0',
+            'org.jetbrains.kotlinx:kotlinx-coroutines-android': 'Apache-2.0',
+            'org.jetbrains.kotlinx:kotlinx-serialization-json': 'Apache-2.0',
+            'org.jetbrains.kotlin:kotlin-stdlib': 'Apache-2.0'
+        ]
+        def dependencies = configurations.getByName('implementation').allDependencies.collect { dependency ->
+            [
+                group: dependency.group ?: 'project',
+                name: dependency.name,
+                version: dependency.version ?: 'unspecified',
+                coordinate: dependency.group ? "${dependency.group}:${dependency.name}" : "project:${dependency.name}",
+            ]
+        }.sort { a, b -> "${a.coordinate}:${a.version}" <=> "${b.coordinate}:${b.version}" }
+        def unresolved = []
         def output = layout.buildDirectory.file('reports/release/licenses.csv').get().asFile
         output.parentFile.mkdirs()
         output.text = 'group,name,version,license,status\n'
-        artifacts.each { artifact ->
-            output << "${artifact.group ?: 'project'},${artifact.name},${artifact.version ?: 'unspecified'},UNKNOWN,review-required\n"
+        dependencies.each { dependency ->
+            def license = knownLicenses[dependency.coordinate]
+            if (license == null) {
+                unresolved << dependency.coordinate
+                license = 'UNRESOLVED'
+            }
+            output << "${dependency.group},${dependency.name},${dependency.version},${license},${license == 'UNRESOLVED' ? 'unresolved' : 'resolved'}\n"
+        }
+        if (!unresolved.isEmpty()) {
+            throw new GradleException("Unresolved production licenses: ${unresolved.unique().sort().join(', ')}")
         }
     }
 }
@@ -345,12 +382,54 @@ tasks.register('printReleaseConfig') {
     description = 'Prints resolved production release endpoints without exposing secrets.'
     doLast {
         println "Environment: ${defaultConfigByFlavor('prod', 'environment')}"
-        println "Tenant URL: ${defaultConfigByFlavor('prod', 'tenantBaseUrl')}"
-        println "AI URL: ${defaultConfigByFlavor('prod', 'aiBaseUrl')}"
-        println "Collaboration URL: ${defaultConfigByFlavor('prod', 'collaborationBaseUrl')}"
+        println "Tenant URL configured: ${!defaultConfigByFlavor('prod', 'tenantBaseUrl').isBlank()}"
+        println "AI URL configured: ${!defaultConfigByFlavor('prod', 'aiBaseUrl').isBlank()}"
+        println "Collaboration URL configured: ${!defaultConfigByFlavor('prod', 'collaborationBaseUrl').isBlank()}"
         println "Has signing keystore: ${!secureConfig('ANDROID_SIGNING_STORE_FILE').isBlank()}"
         println "Has certificate pins: ${!secureConfig('CERTIFICATE_PIN_SET').isBlank()}"
     }
 }
+
+tasks.register('validateReleaseReadiness') {
+    notCompatibleWithConfigurationCache('Scans release inputs for forbidden placeholder and mock markers')
+    group = 'verification'
+    description = 'Fails when production sources still contain shipping placeholders, unresolved license markers, or fake/no-op implementations.'
+    dependsOn 'generateLicenseReport'
+    doLast {
+        def violations = []
+        def scanTargets = [file('app/build.gradle'), file('README.md'), file('.github/workflows/android.yml'), file('.github/workflows/security.yml'), file('scripts/run-smoke-tests.ps1')] + fileTree('app/src/main').files + fileTree('editor-core/src/main').files + fileTree('ai-assistant/src/main').files
+        def literalPatterns = [~/example\.invalid/, ~/security@example\.invalid/, ~/review-required/]
+        def declarationPatterns = [~/\b(class|object|interface)\s+(Fake|NoOp|InMemory|Example|Placeholder)[A-Za-z0-9_]*\b/, ~/\bimport\s+.*\.(Fake|NoOp|InMemory|Example|Placeholder)[A-Za-z0-9_]*\b/]
+        scanTargets.findAll { it.exists() && it.isFile() }.each { candidate ->
+            def normalizedPath = candidate.path.replace('\\', '/')
+            if (normalizedPath.contains('/src/main/') && ['Fake', 'NoOp', 'InMemory', 'Example', 'Placeholder'].any { candidate.name.startsWith(it) }) {
+                violations << "${normalizedPath}: forbidden production file name '${candidate.name}'"
+            }
+            def text = candidate.getText('UTF-8')
+            literalPatterns.each { pattern ->
+                if ((text =~ pattern).find()) {
+                    violations << "${normalizedPath}: matches forbidden literal ${pattern}"
+                }
+            }
+            if (normalizedPath.contains('/src/main/')) {
+                declarationPatterns.each { pattern ->
+                    if ((text =~ pattern).find()) {
+                        violations << "${normalizedPath}: matches forbidden production marker ${pattern}"
+                    }
+                }
+            }
+        }
+        def pins = secureConfig('CERTIFICATE_PIN_SET', '').toLowerCase()
+        if (pins.contains('debug') || pins.contains('placeholder')) {
+            violations << 'CERTIFICATE_PIN_SET contains debug or placeholder pin data'
+        }
+        if (!violations.isEmpty()) {
+            throw new GradleException("Release readiness validation failed:\n - ${violations.unique().sort().join('\n - ')}")
+        }
+    }
+}
+
+preBuild.dependsOn tasks.named('validateReleaseReadiness')
+
 
 

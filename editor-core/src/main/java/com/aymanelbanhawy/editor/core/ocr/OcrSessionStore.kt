@@ -2,8 +2,6 @@ package com.aymanelbanhawy.editor.core.ocr
 
 import com.aymanelbanhawy.editor.core.model.DocumentSourceType
 import com.aymanelbanhawy.editor.core.model.PdfDocumentRef
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.io.File
 
@@ -12,34 +10,48 @@ class OcrSessionStore(
 ) {
     fun load(documentRef: PdfDocumentRef): OcrDocumentPayload? {
         val sidecar = resolveExistingSidecar(documentRef) ?: return null
-        return runCatching {
-            json.decodeFromString(OcrDocumentPayload.serializer(), sidecar.readText())
-        }.getOrNull()
+        return decodeSidecar(sidecar)
     }
 
-    fun persistPage(documentKey: String, settings: OcrSettingsModel, page: OcrPageContent) {
-        val sidecar = sidecarFileForPath(documentKey) ?: return
-        sidecar.parentFile?.mkdirs()
-        val current = if (sidecar.exists()) {
-            runCatching { json.decodeFromString(OcrDocumentPayload.serializer(), sidecar.readText()) }.getOrNull()
-        } else {
-            null
-        }
+    fun loadForDocumentKey(documentKey: String): OcrDocumentPayload? {
+        val sidecar = sidecarFileForPath(documentKey) ?: return null
+        return sidecar.takeIf { it.exists() }?.let(::decodeSidecar)
+    }
+
+    fun mergePage(documentKey: String, settings: OcrSettingsModel, page: OcrPageContent): OcrDocumentPayload {
+        val sidecar = sidecarFileForPath(documentKey)
+        val current = sidecar?.takeIf { it.exists() }?.let(::decodeSidecar)
         val pages = (current?.pages.orEmpty().filterNot { it.pageIndex == page.pageIndex } + page).sortedBy { it.pageIndex }
-        val payload = OcrDocumentPayload(
+        return OcrDocumentPayload(
             documentKey = documentKey,
             settings = settings,
             pages = pages,
             updatedAtEpochMillis = System.currentTimeMillis(),
         )
+    }
+
+    fun persistPayload(payload: OcrDocumentPayload) {
+        val sidecar = sidecarFileForPath(payload.documentKey) ?: return
+        sidecar.parentFile?.mkdirs()
         sidecar.writeText(json.encodeToString(OcrDocumentPayload.serializer(), payload))
+    }
+
+    fun persistPage(documentKey: String, settings: OcrSettingsModel, page: OcrPageContent) {
+        persistPayload(mergePage(documentKey, settings, page))
     }
 
     fun copySidecar(documentRef: PdfDocumentRef, destinationPdf: File, settings: OcrSettingsModel? = null) {
         val payload = load(documentRef) ?: return
-        val effective = if (settings != null) payload.copy(settings = settings, updatedAtEpochMillis = System.currentTimeMillis()) else payload
-        destinationPdf.parentFile?.mkdirs()
-        File(destinationPdf.absolutePath + SIDE_CAR_SUFFIX).writeText(json.encodeToString(OcrDocumentPayload.serializer(), effective.copy(documentKey = destinationPdf.absolutePath)))
+        val effective = if (settings != null) {
+            payload.copy(settings = settings, updatedAtEpochMillis = System.currentTimeMillis())
+        } else {
+            payload
+        }
+        persistPayload(effective.copy(documentKey = destinationPdf.absolutePath))
+    }
+
+    fun deleteSidecar(destinationPdf: File) {
+        File(destinationPdf.absolutePath + SIDE_CAR_SUFFIX).delete()
     }
 
     private fun resolveExistingSidecar(documentRef: PdfDocumentRef): File? {
@@ -61,12 +73,18 @@ class OcrSessionStore(
         }
     }
 
+    private fun decodeSidecar(file: File): OcrDocumentPayload? {
+        return runCatching {
+            json.decodeFromString(OcrDocumentPayload.serializer(), file.readText())
+        }.getOrNull()
+    }
+
     companion object {
         const val SIDE_CAR_SUFFIX: String = ".ocr.json"
     }
 }
 
-@Serializable
+@kotlinx.serialization.Serializable
 data class OcrDocumentPayload(
     val documentKey: String,
     val settings: OcrSettingsModel,

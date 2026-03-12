@@ -10,7 +10,10 @@ enum class ConnectorCapability {
     Import,
     Save,
     Share,
+    Browse,
     MetadataSync,
+    Versioning,
+    ConflictDetection,
     BackgroundTransfer,
     ResumableDownload,
     ResumableUpload,
@@ -21,6 +24,7 @@ enum class ConnectorCredentialType {
     None,
     Basic,
     Bearer,
+    AccessKeySecret,
 }
 
 @Serializable
@@ -45,6 +49,24 @@ enum class SaveDestinationMode {
 }
 
 @Serializable
+enum class ConnectorConflictStrategy {
+    Fail,
+    OverwriteRemote,
+    KeepBoth,
+}
+
+@Serializable
+data class ConnectorConfigurationModel(
+    val rootPath: String = "",
+    val bucket: String = "",
+    val region: String = "us-east-1",
+    val apiPathPrefix: String = "",
+    val enforceTls: Boolean = true,
+    val allowMeteredTransfer: Boolean = true,
+    val chunkSizeBytes: Long = 512L * 1024L,
+)
+
+@Serializable
 data class ConnectorAccountModel(
     val id: String,
     val connectorType: CloudConnector,
@@ -53,6 +75,8 @@ data class ConnectorAccountModel(
     val credentialType: ConnectorCredentialType = ConnectorCredentialType.None,
     val username: String = "",
     val secretAlias: String? = null,
+    val capabilities: Set<ConnectorCapability> = emptySet(),
+    val configuration: ConnectorConfigurationModel = ConnectorConfigurationModel(),
     val supportsOpen: Boolean = true,
     val supportsSave: Boolean = true,
     val supportsShare: Boolean = true,
@@ -70,6 +94,7 @@ data class ConnectorDescriptor(
     val title: String,
     val supportsConfiguration: Boolean,
     val capabilities: Set<ConnectorCapability>,
+    val credentialTypes: Set<ConnectorCredentialType>,
 )
 
 @Serializable
@@ -83,6 +108,8 @@ data class ConnectorFileMetadata(
     val checksumSha256: String? = null,
     val sizeBytes: Long? = null,
     val mimeType: String = "application/pdf",
+    val providerMetadata: Map<String, String> = emptyMap(),
+    val lastConflictAtEpochMillis: Long? = null,
 )
 
 @Serializable
@@ -107,6 +134,7 @@ data class ConnectorSaveRequest(
     val exportMode: AnnotationExportMode,
     val destinationMode: SaveDestinationMode,
     val overwrite: Boolean = false,
+    val conflictStrategy: ConnectorConflictStrategy = ConnectorConflictStrategy.Fail,
 )
 
 @Serializable
@@ -116,6 +144,7 @@ data class ConnectorTransferJobModel(
     val documentKey: String,
     val remotePath: String,
     val localCachePath: String,
+    val tempMaterializedPath: String? = null,
     val direction: TransferDirection,
     val status: TransferStatus,
     val bytesTransferred: Long,
@@ -123,6 +152,10 @@ data class ConnectorTransferJobModel(
     val resumableToken: String? = null,
     val attemptCount: Int = 0,
     val lastError: String? = null,
+    val remoteEtag: String? = null,
+    val remoteVersionId: String? = null,
+    val conflictStrategy: ConnectorConflictStrategy = ConnectorConflictStrategy.Fail,
+    val cacheExpiresAtEpochMillis: Long? = null,
     val createdAtEpochMillis: Long,
     val updatedAtEpochMillis: Long,
 )

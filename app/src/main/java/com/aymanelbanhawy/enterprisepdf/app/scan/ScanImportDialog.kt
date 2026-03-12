@@ -36,6 +36,44 @@ fun ScanImportDialog(
                     onValueChange = { onOptionsChanged(options.copy(displayName = it)) },
                     label = { Text("Output PDF name") },
                 )
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = options.ocrSettings.languageHints.joinToString(", "),
+                    onValueChange = { raw ->
+                        onOptionsChanged(
+                            options.copy(
+                                ocrSettings = options.ocrSettings.copy(
+                                    languageHints = raw.split(',').map { it.trim() }.filter { it.isNotBlank() },
+                                ),
+                            ),
+                        )
+                    },
+                    label = { Text("Language hints") },
+                    supportingText = { Text("Optional BCP-47 hints such as en, ar, fr") },
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        modifier = Modifier.weight(1f),
+                        value = options.ocrSettings.timeoutSeconds.toString(),
+                        onValueChange = { value -> value.toIntOrNull()?.let { onOptionsChanged(options.copy(ocrSettings = options.ocrSettings.copy(timeoutSeconds = it.coerceIn(5, 120)))) } },
+                        label = { Text("Timeout") },
+                        singleLine = true,
+                    )
+                    OutlinedTextField(
+                        modifier = Modifier.weight(1f),
+                        value = options.ocrSettings.maxRetryCount.toString(),
+                        onValueChange = { value -> value.toIntOrNull()?.let { onOptionsChanged(options.copy(ocrSettings = options.ocrSettings.copy(maxRetryCount = it.coerceIn(0, 6)))) } },
+                        label = { Text("Retries") },
+                        singleLine = true,
+                    )
+                    OutlinedTextField(
+                        modifier = Modifier.weight(1f),
+                        value = options.ocrSettings.pagesPerWorkerBatch.toString(),
+                        onValueChange = { value -> value.toIntOrNull()?.let { onOptionsChanged(options.copy(ocrSettings = options.ocrSettings.copy(pagesPerWorkerBatch = it.coerceIn(1, 24)))) } },
+                        label = { Text("Batch") },
+                        singleLine = true,
+                    )
+                }
                 ScanOptionRow("Fix orientation", options.ocrSettings.preprocessing.fixOrientation) {
                     onOptionsChanged(options.copy(ocrSettings = options.ocrSettings.copy(preprocessing = options.ocrSettings.preprocessing.copy(fixOrientation = it))))
                 }
@@ -61,7 +99,7 @@ fun ScanImportDialog(
                     onOptionsChanged(options.copy(ocrSettings = options.ocrSettings.copy(deliveryMode = if (it) OcrModelDeliveryMode.PlatformManaged else OcrModelDeliveryMode.Bundled)))
                 }
                 Text(
-                    "Imported pages are cleaned locally, queued for ML Kit OCR, and saved as a searchable session with persisted OCR sidecar data.",
+                    "Imported pages are cleaned locally, queued for ML Kit OCR, and rewritten into a searchable PDF with persisted text blocks and page regions.",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }

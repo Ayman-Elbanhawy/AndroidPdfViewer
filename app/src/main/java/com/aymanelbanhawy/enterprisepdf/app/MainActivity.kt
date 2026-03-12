@@ -115,6 +115,13 @@ class MainActivity : ComponentActivity() {
                             onExtractActionItemsWithAi = viewModel::extractActionItemsWithAi,
                             onExplainSelectionWithAi = viewModel::explainSelectionWithAi,
                             onSemanticSearchWithAi = viewModel::runAiSemanticSearch,
+                            onAskWorkspaceWithAi = viewModel::askWorkspaceWithAi,
+                            onSummarizeWorkspaceWithAi = viewModel::summarizeWorkspaceWithAi,
+                            onCompareWorkspaceWithAi = viewModel::compareWorkspaceWithAi,
+                            onPinCurrentDocumentToAiWorkspace = viewModel::pinCurrentDocumentToAiWorkspace,
+                            onToggleAiWorkspaceDocument = viewModel::toggleAiWorkspaceDocument,
+                            onUnpinAiWorkspaceDocument = viewModel::unpinAiWorkspaceDocument,
+                            onSaveAiWorkspaceSet = viewModel::saveAiWorkspaceDocumentSet,
                             onAssistantPrivacyModeChanged = viewModel::updateAssistantPrivacyMode,
                             onAssistantProviderDraftChanged = viewModel::updateAssistantProviderDraft,
                             onSaveAssistantProvider = viewModel::saveAssistantProvider,
@@ -129,6 +136,12 @@ class MainActivity : ComponentActivity() {
                             onOpenOutlineItem = viewModel::openOutlineItem,
                             onCopySelectedText = viewModel::copySelectedText,
                             onShareSelectedText = viewModel::shareSelectedText,
+                            onOcrSettingsChanged = viewModel::updateOcrSettings,
+                            onSaveOcrSettings = viewModel::saveOcrSettings,
+                            onPauseOcr = viewModel::pauseOcr,
+                            onResumeOcr = viewModel::resumeOcr,
+                            onRerunOcr = viewModel::rerunOcr,
+                            onOpenOcrPage = viewModel::openOcrPage,
                             onShowScanImport = viewModel::showScanImportDialog,
                             onDismissScanImport = viewModel::dismissScanImportDialog,
                             onScanImportOptionsChanged = viewModel::updateScanImportOptions,
@@ -136,6 +149,12 @@ class MainActivity : ComponentActivity() {
                             onCreateShareLink = viewModel::createShareLink,
                             onCreateSnapshot = viewModel::createVersionSnapshot,
                             onSyncNow = viewModel::syncCollaboration,
+                            onCompareAgainstLatestSnapshot = viewModel::compareAgainstLatestSnapshot,
+                            onCreateFormTemplate = viewModel::createCurrentFormTemplate,
+                            onCreateSignatureRequest = viewModel::createSignatureRequest,
+                            onCreateFormRequest = viewModel::createFormRequest,
+                            onSendWorkflowReminder = viewModel::sendWorkflowReminder,
+                            onMarkWorkflowRequestCompleted = viewModel::markWorkflowRequestCompleted,
                             onReviewFilterChanged = viewModel::updateReviewFilter,
                             onAddReviewThread = viewModel::addReviewThread,
                             onAddReviewReply = viewModel::addReviewReply,
@@ -220,6 +239,10 @@ class MainActivity : ComponentActivity() {
         startActivity(Intent.createChooser(sendIntent, event.title))
     }
 }
+
+
+
+
 
 
 

@@ -155,6 +155,13 @@ fun EditorScreen(
     onExtractActionItemsWithAi: () -> Unit,
     onExplainSelectionWithAi: () -> Unit,
     onSemanticSearchWithAi: () -> Unit,
+    onAskWorkspaceWithAi: () -> Unit,
+    onSummarizeWorkspaceWithAi: () -> Unit,
+    onCompareWorkspaceWithAi: () -> Unit,
+    onPinCurrentDocumentToAiWorkspace: () -> Unit,
+    onToggleAiWorkspaceDocument: (String, Boolean) -> Unit,
+    onUnpinAiWorkspaceDocument: (String) -> Unit,
+    onSaveAiWorkspaceSet: (String) -> Unit,
     onAssistantPrivacyModeChanged: (AssistantPrivacyMode) -> Unit,
     onAssistantProviderDraftChanged: (AiProviderDraft) -> Unit,
     onSaveAssistantProvider: () -> Unit,
@@ -169,6 +176,12 @@ fun EditorScreen(
     onOpenOutlineItem: (Int) -> Unit,
     onCopySelectedText: () -> Unit,
     onShareSelectedText: () -> Unit,
+    onOcrSettingsChanged: (com.aymanelbanhawy.editor.core.ocr.OcrSettingsModel) -> Unit,
+    onSaveOcrSettings: () -> Unit,
+    onPauseOcr: (Int?) -> Unit,
+    onResumeOcr: (Int?) -> Unit,
+    onRerunOcr: (Int?) -> Unit,
+    onOpenOcrPage: (Int) -> Unit,
     onShowScanImport: () -> Unit,
     onDismissScanImport: () -> Unit,
     onScanImportOptionsChanged: (ScanImportOptions) -> Unit,
@@ -176,6 +189,12 @@ fun EditorScreen(
     onCreateShareLink: () -> Unit,
     onCreateSnapshot: () -> Unit,
     onSyncNow: () -> Unit,
+    onCompareAgainstLatestSnapshot: () -> Unit,
+    onCreateFormTemplate: (String) -> Unit,
+    onCreateSignatureRequest: (String) -> Unit,
+    onCreateFormRequest: (String, String) -> Unit,
+    onSendWorkflowReminder: (String) -> Unit,
+    onMarkWorkflowRequestCompleted: (String) -> Unit,
     onReviewFilterChanged: (ReviewFilterModel) -> Unit,
     onAddReviewThread: (String, String) -> Unit,
     onAddReviewReply: (String, String) -> Unit,
@@ -406,6 +425,8 @@ fun EditorScreen(
                         outlineItems = state.outlineItems,
                         selectedText = state.selectedTextSelection?.text.orEmpty(),
                         isIndexing = state.isSearchIndexing,
+                        ocrJobs = state.ocrJobs,
+                        ocrSettings = state.ocrSettings,
                         onQueryChanged = onSearchQueryChanged,
                         onSearch = onSearch,
                         onSelectHit = onSelectSearchHit,
@@ -415,6 +436,12 @@ fun EditorScreen(
                         onOpenOutlineItem = onOpenOutlineItem,
                         onCopySelectedText = onCopySelectedText,
                         onShareSelectedText = onShareSelectedText,
+                        onOcrSettingsChanged = onOcrSettingsChanged,
+                        onSaveOcrSettings = onSaveOcrSettings,
+                        onPauseOcr = onPauseOcr,
+                        onResumeOcr = onResumeOcr,
+                        onRerunOcr = onRerunOcr,
+                        onOpenOcrPage = onOpenOcrPage,
                     )
                 }
                 state.activePanel == WorkspacePanel.Assistant && state.annotationSidebarVisible -> {
@@ -428,6 +455,13 @@ fun EditorScreen(
                         onExtractActionItems = onExtractActionItemsWithAi,
                         onExplainSelection = onExplainSelectionWithAi,
                         onSemanticSearch = onSemanticSearchWithAi,
+                        onAskWorkspace = onAskWorkspaceWithAi,
+                        onSummarizeWorkspace = onSummarizeWorkspaceWithAi,
+                        onCompareWorkspace = onCompareWorkspaceWithAi,
+                        onPinCurrentDocument = onPinCurrentDocumentToAiWorkspace,
+                        onToggleWorkspaceDocument = onToggleAiWorkspaceDocument,
+                        onUnpinDocument = onUnpinAiWorkspaceDocument,
+                        onSaveWorkspaceSet = onSaveAiWorkspaceSet,
                         onPrivacyModeChanged = onAssistantPrivacyModeChanged,
                         onProviderDraftChanged = onAssistantProviderDraftChanged,
                         onSaveProvider = onSaveAssistantProvider,
@@ -443,11 +477,18 @@ fun EditorScreen(
                         shareLinks = state.shareLinks,
                         reviewThreads = state.reviewThreads,
                         snapshots = state.versionSnapshots,
+                        compareReports = state.workflowState.compareReports,
+                        formTemplates = state.workflowState.formTemplates,
+                        workflowRequests = state.workflowState.requests,
                         filter = state.reviewFilter,
                         pendingSyncCount = state.pendingSyncCount,
                         onCreateShareLink = onCreateShareLink,
                         onCreateSnapshot = onCreateSnapshot,
                         onSyncNow = onSyncNow,
+                        onCompareAgainstLatestSnapshot = onCompareAgainstLatestSnapshot,
+                        onCreateFormTemplate = onCreateFormTemplate,
+                        onCreateSignatureRequest = onCreateSignatureRequest,
+                        onCreateFormRequest = onCreateFormRequest,
                         onFilterChanged = onReviewFilterChanged,
                         onAddThread = onAddReviewThread,
                         onAddReply = onAddReviewReply,
@@ -458,8 +499,11 @@ fun EditorScreen(
                     ActivitySidebar(
                         modifier = Modifier.width(380.dp).fillMaxHeight().padding(12.dp),
                         events = state.activityEvents,
+                        requests = state.workflowState.requests,
                         pendingSyncCount = state.pendingSyncCount,
                         onSyncNow = onSyncNow,
+                        onSendReminder = onSendWorkflowReminder,
+                        onMarkRequestCompleted = onMarkWorkflowRequestCompleted,
                     )
                 }
                 state.activePanel == WorkspacePanel.Settings && state.annotationSidebarVisible -> {
@@ -689,6 +733,11 @@ private fun EditorAction.tooltipLabel(): String = when (this) {
     EditorAction.Settings -> "Settings"
     EditorAction.Diagnostics -> "Diagnostics"
 }
+
+
+
+
+
 
 
 
