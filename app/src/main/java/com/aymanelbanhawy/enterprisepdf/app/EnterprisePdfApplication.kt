@@ -4,17 +4,21 @@ import android.app.Application
 import android.os.SystemClock
 import androidx.work.Configuration
 import com.aymanelbanhawy.enterprisepdf.app.release.AppLogger
+import com.aymanelbanhawy.enterprisepdf.app.release.AppRuntimeConfig
 import com.aymanelbanhawy.enterprisepdf.app.release.AppRuntimeConfigLoader
 import kotlinx.coroutines.runBlocking
 
 class EnterprisePdfApplication : Application(), Configuration.Provider {
+    private val runtimeConfig: AppRuntimeConfig by lazy(LazyThreadSafetyMode.NONE) {
+        AppRuntimeConfigLoader.load(this)
+    }
+
     lateinit var appContainer: AppContainer
         private set
 
     override fun onCreate() {
         val startedAt = SystemClock.elapsedRealtime()
         super.onCreate()
-        val runtimeConfig = AppRuntimeConfigLoader.load(this)
         AppLogger.configure(runtimeConfig)
         val editorCoreContainer = com.aymanelbanhawy.editor.core.EditorCoreContainer(this)
         appContainer = AppContainer(editorCoreContainer, runtimeConfig)
@@ -39,6 +43,6 @@ class EnterprisePdfApplication : Application(), Configuration.Provider {
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
-            .setMinimumLoggingLevel(if (appContainer.runtimeConfig.secureLoggingEnabled) android.util.Log.WARN else android.util.Log.INFO)
+            .setMinimumLoggingLevel(if (runtimeConfig.secureLoggingEnabled) android.util.Log.WARN else android.util.Log.INFO)
             .build()
 }

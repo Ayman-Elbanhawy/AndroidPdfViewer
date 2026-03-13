@@ -36,7 +36,7 @@ class OcrWorker(
         val database = createEditorCoreDatabase(applicationContext)
         return try {
             val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; classDiscriminator = "_type" }
-            val ocrSessionStore = OcrSessionStore(json)
+            val ocrSessionStore = OcrSessionStore(json, database.ocrJobDao())
             val diagnostics = DefaultRuntimeDiagnosticsRepository(
                 context = applicationContext,
                 breadcrumbDao = database.runtimeBreadcrumbDao(),
@@ -123,3 +123,4 @@ class OcrWorker(
         }
     }
 }
+

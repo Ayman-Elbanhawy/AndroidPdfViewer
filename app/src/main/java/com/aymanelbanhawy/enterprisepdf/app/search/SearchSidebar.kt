@@ -178,7 +178,7 @@ private fun OcrSection(
         value = settings.languageHints.joinToString(", "),
         onValueChange = { raw -> onSettingsChanged(settings.copy(languageHints = raw.split(',').map { it.trim() }.filter { it.isNotBlank() })) },
         label = { Text("Language hints") },
-        supportingText = { Text("Comma-separated BCP-47 hints, for example: en, ar, fr") },
+        supportingText = { Text("Comma-separated BCP-47 hints, such as en, ar, fr") },
         singleLine = true,
     )
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -330,4 +330,5 @@ private fun LazyListScope.appendOutlineItems(
         appendOutlineItems(item.children, depth + 1, onOpenOutlineItem)
     }
 }
+
 

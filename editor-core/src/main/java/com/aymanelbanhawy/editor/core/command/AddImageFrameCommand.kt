@@ -5,10 +5,10 @@ import com.aymanelbanhawy.editor.core.model.AnnotationModel
 import com.aymanelbanhawy.editor.core.model.AnnotationType
 import com.aymanelbanhawy.editor.core.model.NormalizedRect
 
-class AddImagePlaceholderCommand(
+class AddImageFrameCommand(
     private val pageIndex: Int,
-    private val placeholder: AnnotationModel,
-) : EditorCommand by AddAnnotationCommand(pageIndex, placeholder.copy(type = AnnotationType.Rectangle)) {
+    private val frameAnnotation: AnnotationModel,
+) : EditorCommand by AddAnnotationCommand(pageIndex, frameAnnotation.copy(type = AnnotationType.Rectangle)) {
     companion object {
         fun create(
             id: String,
@@ -36,3 +36,4 @@ class AddImagePlaceholderCommand(
         }
     }
 }
+

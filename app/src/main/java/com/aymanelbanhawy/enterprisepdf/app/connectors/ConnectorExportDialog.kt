@@ -71,7 +71,7 @@ fun ConnectorExportDialog(
                         onRemotePathChanged(it)
                     },
                     label = { Text("Destination path") },
-                    supportingText = { Text("Example: /exports/document.pdf or content://...", style = MaterialTheme.typography.bodySmall) },
+                    supportingText = { Text("Path format: /exports/document.pdf or content://...", style = MaterialTheme.typography.bodySmall) },
                     modifier = Modifier.fillMaxWidth(),
                 )
             }

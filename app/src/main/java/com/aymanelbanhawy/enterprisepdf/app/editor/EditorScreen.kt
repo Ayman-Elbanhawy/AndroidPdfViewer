@@ -100,6 +100,17 @@ import com.github.barteksc.pdfviewer.bridge.PdfViewportCallbacks
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 
+
+data class EditorWorkflowExportActions(
+    val onCompareAgainstLatestSnapshot: () -> Unit,
+    val onOpenCompareMarker: (com.aymanelbanhawy.editor.core.workflow.CompareMarkerModel) -> Unit,
+    val onExportText: () -> Unit,
+    val onExportMarkdown: () -> Unit,
+    val onExportImages: () -> Unit,
+    val onOptimizeLight: () -> Unit,
+    val onOptimizeBalanced: () -> Unit,
+    val onOptimizeStrong: () -> Unit,
+)
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun EditorScreen(
@@ -189,7 +200,7 @@ fun EditorScreen(
     onCreateShareLink: () -> Unit,
     onCreateSnapshot: () -> Unit,
     onSyncNow: () -> Unit,
-    onCompareAgainstLatestSnapshot: () -> Unit,
+    workflowExportActions: EditorWorkflowExportActions,
     onCreateFormTemplate: (String) -> Unit,
     onCreateSignatureRequest: (String) -> Unit,
     onCreateFormRequest: (String, String) -> Unit,
@@ -326,7 +337,13 @@ fun EditorScreen(
                         DropdownMenuItem(text = { Text("Save Editable Copy") }, onClick = { overflowExpanded = false; onSaveAsEditable() })
                         DropdownMenuItem(text = { Text("Save Flattened Copy") }, onClick = { overflowExpanded = false; onSaveAsFlattened() })
                         DropdownMenuItem(text = { Text("Import Form Profile") }, onClick = { overflowExpanded = false; onImportProfile() })
-                        DropdownMenuItem(text = { Text("Import Scan Images") }, onClick = { overflowExpanded = false; onShowScanImport() })
+                        DropdownMenuItem(text = { Text("Images To Searchable PDF") }, onClick = { overflowExpanded = false; onShowScanImport() })
+                        DropdownMenuItem(text = { Text("Export Text") }, onClick = { overflowExpanded = false; workflowExportActions.onExportText() })
+                        DropdownMenuItem(text = { Text("Export Markdown") }, onClick = { overflowExpanded = false; workflowExportActions.onExportMarkdown() })
+                        DropdownMenuItem(text = { Text("Export Page Images") }, onClick = { overflowExpanded = false; workflowExportActions.onExportImages() })
+                        DropdownMenuItem(text = { Text("Optimize Light") }, onClick = { overflowExpanded = false; workflowExportActions.onOptimizeLight() })
+                        DropdownMenuItem(text = { Text("Optimize Balanced") }, onClick = { overflowExpanded = false; workflowExportActions.onOptimizeBalanced() })
+                        DropdownMenuItem(text = { Text("Optimize Strong") }, onClick = { overflowExpanded = false; workflowExportActions.onOptimizeStrong() })
                         DropdownMenuItem(text = { Text(if (state.annotationSidebarVisible) "Hide Sidebar" else "Show Sidebar") }, onClick = { overflowExpanded = false; onSidebarToggle() })
                     }
                 },
@@ -485,7 +502,7 @@ fun EditorScreen(
                         onCreateShareLink = onCreateShareLink,
                         onCreateSnapshot = onCreateSnapshot,
                         onSyncNow = onSyncNow,
-                        onCompareAgainstLatestSnapshot = onCompareAgainstLatestSnapshot,
+                        onCompareAgainstLatestSnapshot = workflowExportActions.onCompareAgainstLatestSnapshot,
                         onCreateFormTemplate = onCreateFormTemplate,
                         onCreateSignatureRequest = onCreateSignatureRequest,
                         onCreateFormRequest = onCreateFormRequest,
@@ -493,6 +510,7 @@ fun EditorScreen(
                         onAddThread = onAddReviewThread,
                         onAddReply = onAddReviewReply,
                         onToggleResolved = onToggleThreadResolved,
+                        onOpenCompareMarker = workflowExportActions.onOpenCompareMarker,
                     )
                 }
                 state.activePanel == WorkspacePanel.Activity && state.annotationSidebarVisible -> {
@@ -733,6 +751,12 @@ private fun EditorAction.tooltipLabel(): String = when (this) {
     EditorAction.Settings -> "Settings"
     EditorAction.Diagnostics -> "Diagnostics"
 }
+
+
+
+
+
+
 
 
 

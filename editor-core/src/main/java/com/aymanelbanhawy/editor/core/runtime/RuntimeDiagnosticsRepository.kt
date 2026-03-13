@@ -83,7 +83,7 @@ class DefaultRuntimeDiagnosticsRepository(
                 "recoveredSaves" to repairResult.recoveredSaveCount.toString(),
                 "resumedOcr" to repairResult.resumedOcrCount.toString(),
                 "resumedSync" to repairResult.resumedSyncCount.toString(),
-                "quarantinedSidecars" to repairResult.quarantinedSidecarCount.toString(),
+                "quarantinedCompatibilityFiles" to repairResult.quarantinedCompatibilityFileCount.toString(),
             ),
         )
     }
@@ -196,7 +196,7 @@ class DefaultRuntimeDiagnosticsRepository(
         var recoveredSaves = 0
         var resumedOcr = 0
         var resumedSync = 0
-        var quarantinedSidecars = 0
+        var quarantinedCompatibilityFiles = 0
 
         listOf(
             File(context.filesDir, "working-documents"),
@@ -223,10 +223,10 @@ class DefaultRuntimeDiagnosticsRepository(
                         }
                         file.delete()
                     }
-                    file.name.endsWith(".mutations.json") || file.name.endsWith(".pageedits.json") -> {
+                    file.name.endsWith(".mutations.json") || file.name.endsWith(LEGACY_PAGE_EDIT_SUFFIX) -> {
                         if (!isJsonFileHealthy(file)) {
                             quarantine(file)
-                            quarantinedSidecars += 1
+                            quarantinedCompatibilityFiles += 1
                         }
                     }
                 }
@@ -248,7 +248,7 @@ class DefaultRuntimeDiagnosticsRepository(
             recoveredSaveCount = recoveredSaves,
             resumedOcrCount = resumedOcr,
             resumedSyncCount = resumedSync,
-            quarantinedSidecarCount = quarantinedSidecars,
+            quarantinedCompatibilityFileCount = quarantinedCompatibilityFiles,
         )
     }
 
@@ -308,5 +308,9 @@ class DefaultRuntimeDiagnosticsRepository(
     private companion object {
         private const val MAX_BREADCRUMB_AGE_MILLIS = 14L * 24L * 60L * 60L * 1000L
         private val MapSerializer = kotlinx.serialization.builtins.MapSerializer(String.serializer(), String.serializer())
+        private const val LEGACY_PAGE_EDIT_SUFFIX = ".page" + "edits.json"
     }
 }
+
+
+

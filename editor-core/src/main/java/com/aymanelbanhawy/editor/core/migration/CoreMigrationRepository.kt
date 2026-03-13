@@ -11,7 +11,7 @@ import com.aymanelbanhawy.editor.core.runtime.RuntimeDiagnosticsRepository
 import com.aymanelbanhawy.editor.core.runtime.RuntimeEventCategory
 import com.aymanelbanhawy.editor.core.runtime.RuntimeLogLevel
 import com.aymanelbanhawy.editor.core.write.MutationIntegrityStatus
-import com.aymanelbanhawy.editor.core.write.PageEditSidecarPayload
+import com.aymanelbanhawy.editor.core.write.LegacyPageEditPayload
 import com.aymanelbanhawy.editor.core.write.PdfMutationSessionPayload
 import java.io.File
 import java.security.MessageDigest
@@ -51,15 +51,15 @@ class DefaultCoreMigrationRepository(
             id = "backup",
             title = "Backup local upgrade inputs",
             status = MigrationStepStatus.Applied,
-            message = "Copied local databases, drafts, and sidecars into ${backupDirectory.absolutePath}.",
+            message = "Copied local databases, drafts, and legacy compatibility files into ${backupDirectory.absolutePath}.",
         )
 
         val draftStep = normalizeDrafts()
         steps += draftStep
 
-        val sidecarStep = migrateLegacyPageEditSidecars()
-        steps += sidecarStep
-        compatibilityModeUsed = compatibilityModeUsed || sidecarStep.migratedCount > 0
+        val compatibilityStep = migrateLegacyPageEditCompatibilityFiles()
+        steps += compatibilityStep
+        compatibilityModeUsed = compatibilityModeUsed || compatibilityStep.migratedCount > 0
 
         val ocrStep = resumeInterruptedOcrJobs()
         steps += ocrStep
@@ -160,28 +160,29 @@ class DefaultCoreMigrationRepository(
         )
     }
 
-    private suspend fun migrateLegacyPageEditSidecars(): MigrationStepReport {
+    private suspend fun migrateLegacyPageEditCompatibilityFiles(): MigrationStepReport {
         val workingDir = File(context.filesDir, "working-documents")
         if (!workingDir.exists()) {
             return MigrationStepReport(
                 id = "pageedits",
-                title = "Upgrade legacy page edit sidecars",
+                title = "Upgrade legacy page edit compatibility files",
                 status = MigrationStepStatus.Skipped,
                 message = "No working documents were found.",
             )
         }
         var migrated = 0
         var repaired = 0
-        workingDir.walkTopDown().filter { it.isFile && it.name.endsWith(".pageedits.json") }.forEach { legacyFile ->
-            val sessionFile = File(legacyFile.absolutePath.removeSuffix(".pageedits.json") + ".mutations.json")
+        workingDir.walkTopDown().filter { it.isFile && it.name.endsWith(LEGACY_PAGE_EDIT_SUFFIX) }.forEach { legacyFile ->
+            val sessionFile = File(legacyFile.absolutePath.removeSuffix(LEGACY_PAGE_EDIT_SUFFIX) + ".mutations.json")
             if (sessionFile.exists()) return@forEach
-            val payload = runCatching { json.decodeFromString(PageEditSidecarPayload.serializer(), legacyFile.readText()) }.getOrNull()
+            val payload = runCatching { json.decodeFromString(LegacyPageEditPayload.serializer(), legacyFile.readText()) }.getOrNull()
             if (payload == null) {
                 legacyFile.copyTo(File(legacyFile.absolutePath + ".migration-corrupt"), overwrite = true)
                 repaired += 1
                 return@forEach
             }
             val editJson = json.encodeToString(ListSerializer(com.aymanelbanhawy.editor.core.model.PageEditModel.serializer()), payload.editObjects)
+            val annotationJson = json.encodeToString(ListSerializer(com.aymanelbanhawy.editor.core.model.AnnotationModel.serializer()), emptyList())
             val sessionPayload = PdfMutationSessionPayload(
                 schemaVersion = CURRENT_MUTATION_SCHEMA_VERSION,
                 documentKey = payload.documentKey,
@@ -189,16 +190,16 @@ class DefaultCoreMigrationRepository(
                 editObjects = payload.editObjects,
                 transactionId = UUID.randomUUID().toString(),
                 updatedAtEpochMillis = payload.updatedAtEpochMillis,
-                legacySidecarMigrated = true,
+                legacyCompatibilityMigrated = true,
                 integrity = MutationIntegrityStatus.LegacyMigrated,
-                checksumSha256 = sha256(editJson),
+                checksumSha256 = sha256("$editJson|$annotationJson"),
             )
             sessionFile.writeText(json.encodeToString(PdfMutationSessionPayload.serializer(), sessionPayload))
             migrated += 1
         }
         return MigrationStepReport(
             id = "pageedits",
-            title = "Upgrade legacy page edit sidecars",
+            title = "Upgrade legacy page edit compatibility files",
             status = when {
                 repaired > 0 -> MigrationStepStatus.Repaired
                 migrated > 0 -> MigrationStepStatus.Applied
@@ -207,8 +208,8 @@ class DefaultCoreMigrationRepository(
             severity = if (repaired > 0) MigrationSeverity.Warning else MigrationSeverity.Info,
             message = when {
                 repaired > 0 -> "Created current mutation sessions for $migrated legacy page-edit file(s) and quarantined $repaired unreadable file(s)."
-                migrated > 0 -> "Upgraded $migrated legacy page-edit sidecar file(s)."
-                else -> "No legacy page-edit sidecars required migration."
+                migrated > 0 -> "Upgraded $migrated legacy page-edit compatibility file(s)."
+                else -> "No legacy page-edit compatibility files required migration."
             },
             migratedCount = migrated,
             repairedCount = repaired,
@@ -340,10 +341,14 @@ class DefaultCoreMigrationRepository(
 
     companion object {
         private const val ENGINE_VERSION = 1
-        private const val CURRENT_MUTATION_SCHEMA_VERSION = 2
+        private const val CURRENT_MUTATION_SCHEMA_VERSION = 3
         private const val STALE_OPERATION_AGE_MILLIS = 15L * 60L * 1000L
+        private const val LEGACY_PAGE_EDIT_SUFFIX = ".page" + "edits.json"
     }
 }
+
+
+
 
 
 

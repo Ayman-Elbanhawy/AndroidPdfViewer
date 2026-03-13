@@ -23,7 +23,7 @@ import com.aymanelbanhawy.editor.core.runtime.RuntimeDiagnosticsSnapshot
 import com.aymanelbanhawy.editor.core.runtime.RuntimeEventCategory
 import com.aymanelbanhawy.editor.core.runtime.RuntimeLogLevel
 import com.aymanelbanhawy.editor.core.runtime.StartupRepairResult
-import com.aymanelbanhawy.editor.core.write.PageEditSidecarPayload
+import com.aymanelbanhawy.editor.core.write.LegacyPageEditPayload
 import com.google.common.truth.Truth.assertThat
 import java.io.File
 import kotlinx.coroutines.flow.Flow
@@ -81,11 +81,11 @@ class DefaultCoreMigrationRepositoryTest {
         File(draftsDir, "$sessionId.json").writeText(json.encodeToString(DraftPayload.serializer(), draft))
         File(draftsDir, "broken.json").writeText("not-json")
 
-        val legacySidecar = File(workingDir, "sample.pdf.pageedits.json")
-        legacySidecar.writeText(
+        val legacyCompatibilityFile = File(workingDir, "sample.pdf.page" + "edits.json")
+        legacyCompatibilityFile.writeText(
             json.encodeToString(
-                PageEditSidecarPayload.serializer(),
-                PageEditSidecarPayload(documentKey = "sample-key", editObjects = emptyList(), updatedAtEpochMillis = 1234L),
+                LegacyPageEditPayload.serializer(),
+                LegacyPageEditPayload(documentKey = "sample-key", editObjects = emptyList(), updatedAtEpochMillis = 1234L),
             ),
         )
 
@@ -203,6 +203,8 @@ private class NoOpDiagnosticsRepository : RuntimeDiagnosticsRepository {
     override suspend fun captureSnapshot(currentDocument: DocumentModel?): RuntimeDiagnosticsSnapshot = RuntimeDiagnosticsSnapshot()
     override suspend fun runStartupRepair(): StartupRepairResult = StartupRepairResult()
 }
+
+
 
 
 

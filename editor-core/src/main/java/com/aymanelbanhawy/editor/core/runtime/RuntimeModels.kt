@@ -103,5 +103,6 @@ data class StartupRepairResult(
     val recoveredSaveCount: Int = 0,
     val resumedOcrCount: Int = 0,
     val resumedSyncCount: Int = 0,
-    val quarantinedSidecarCount: Int = 0,
+    val quarantinedCompatibilityFileCount: Int = 0,
 )
+

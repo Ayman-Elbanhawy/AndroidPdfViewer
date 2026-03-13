@@ -48,7 +48,7 @@ import com.aymanelbanhawy.aiassistant.core.AssistantUiState
 import com.aymanelbanhawy.aiassistant.core.AssistiveSuggestionType
 import com.aymanelbanhawy.aiassistant.core.SemanticSearchCard
 import com.aymanelbanhawy.aiassistant.core.WorkspaceDocumentReference
-import com.aymanelbanhawy.aiassistant.core.endpointPlaceholder
+import com.aymanelbanhawy.aiassistant.core.endpointHintUrl
 import com.aymanelbanhawy.aiassistant.core.requiresCredential
 import com.aymanelbanhawy.aiassistant.core.toDraft
 
@@ -150,14 +150,14 @@ fun AssistantSidebar(
                     AiProviderKind.entries.forEach { kind ->
                         FilterChip(selected = draft.kind == kind, onClick = {
                             val profile = providerState.profiles.firstOrNull { it.kind == kind }
-                            val nextDraft = profile?.toDraft() ?: draft.copy(profileId = defaultProfileId(kind), kind = kind, displayName = defaultProviderName(kind), endpointUrl = kind.endpointPlaceholder(), modelId = "")
+                            val nextDraft = profile?.toDraft() ?: draft.copy(profileId = defaultProfileId(kind), kind = kind, displayName = defaultProviderName(kind), endpointUrl = kind.endpointHintUrl(), modelId = "")
                             onProviderDraftChanged(nextDraft.copy(apiKeyInput = draft.apiKeyInput))
                         }, label = { Text(kind.name) })
                     }
                 }
             }
             item { OutlinedTextField(value = draft.displayName, onValueChange = { onProviderDraftChanged(draft.copy(displayName = it)) }, modifier = Modifier.fillMaxWidth(), label = { Text("Provider name") }) }
-            item { OutlinedTextField(value = draft.endpointUrl, onValueChange = { onProviderDraftChanged(draft.copy(endpointUrl = it)) }, modifier = Modifier.fillMaxWidth(), label = { Text("Endpoint URL") }, placeholder = { Text(draft.kind.endpointPlaceholder()) }, supportingText = { Text(endpointHelp(draft.kind)) }, leadingIcon = { Icon(Icons.Outlined.Link, contentDescription = null) }) }
+            item { OutlinedTextField(value = draft.endpointUrl, onValueChange = { onProviderDraftChanged(draft.copy(endpointUrl = it)) }, modifier = Modifier.fillMaxWidth(), label = { Text("Endpoint URL") }, placeholder = { Text(draft.kind.endpointHintUrl()) }, supportingText = { Text(endpointHelp(draft.kind)) }, leadingIcon = { Icon(Icons.Outlined.Link, contentDescription = null) }) }
             item { OutlinedTextField(value = draft.apiKeyInput, onValueChange = { onProviderDraftChanged(draft.copy(apiKeyInput = it)) }, modifier = Modifier.fillMaxWidth(), label = { Text("API key / token") }, supportingText = { Text(if (draft.kind.requiresCredential()) "Stored securely with Android Keystore-backed encryption." else "Optional for this provider.") }, visualTransformation = PasswordVisualTransformation()) }
             item { OutlinedTextField(value = draft.modelId, onValueChange = { onProviderDraftChanged(draft.copy(modelId = it)) }, modifier = Modifier.fillMaxWidth(), label = { Text("Model") }, leadingIcon = { Icon(Icons.Outlined.ModelTraining, contentDescription = null) }) }
             item { OutlinedTextField(value = draft.requestTimeoutSeconds.toString(), onValueChange = { value -> value.filter(Char::isDigit).toIntOrNull()?.let { onProviderDraftChanged(draft.copy(requestTimeoutSeconds = it)) } }, modifier = Modifier.fillMaxWidth(), label = { Text("Timeout (s)") }) }
@@ -305,3 +305,4 @@ private fun defaultProviderName(kind: AiProviderKind): String = when (kind) {
     AiProviderKind.OpenAi -> "OpenAI"
     AiProviderKind.OpenAiCompatible -> "OpenAI Compatible"
 }
+

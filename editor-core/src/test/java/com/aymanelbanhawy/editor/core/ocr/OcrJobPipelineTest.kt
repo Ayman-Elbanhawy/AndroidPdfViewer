@@ -28,7 +28,7 @@ import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import java.io.File
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import org.junit.Before
 import org.junit.Test
@@ -51,19 +51,19 @@ class OcrJobPipelineTest {
     }
 
     @Test
-    fun completePersistsSearchAndSidecar() = runTest {
+    fun completePersistsSearchAndDatabaseBackedPayload() = runBlocking {
         val dao = FakeOcrJobDao()
         val settingsDao = FakeOcrSettingsDao()
         val searchService = RecordingSearchService()
         val tempDir = createTempDir(prefix = "ocr-pipeline-test")
-        val sidecarStore = OcrSessionStore(json)
+        val sessionStore = OcrSessionStore(json, dao)
         val pipeline = OcrJobPipeline(
             ocrJobDao = dao,
             ocrSettingsDao = settingsDao,
             searchService = searchService,
             workManager = androidx.work.WorkManager.getInstance(context),
             json = json,
-            ocrSessionStore = sidecarStore,
+            ocrSessionStore = sessionStore,
         )
         val settings = OcrSettingsModel()
         val job = OcrJobEntity(
@@ -82,11 +82,14 @@ class OcrJobPipelineTest {
         val stored = dao.job("doc::0")
         assertThat(stored?.status).isEqualTo(OcrJobStatus.Completed.name)
         assertThat(searchService.lastPageText).isEqualTo("Invoice total due")
-        assertThat(File(job.documentKey + OcrSessionStore.SIDE_CAR_SUFFIX).exists()).isTrue()
+        val persisted = sessionStore.loadForDocumentKey(job.documentKey)
+        assertThat(persisted?.pages).hasSize(1)
+        assertThat(persisted?.pages?.first()?.text).isEqualTo("Invoice total due")
+        assertThat(File(job.documentKey + OcrSessionStore.COMPATIBILITY_SUFFIX).exists()).isTrue()
     }
 
     @Test
-    fun completeEmbedsSearchablePdfText() = runTest {
+    fun completeEmbedsSearchablePdfText() = runBlocking {
         val dao = FakeOcrJobDao()
         val settingsDao = FakeOcrSettingsDao()
         val searchService = RecordingSearchService()
@@ -102,7 +105,7 @@ class OcrJobPipelineTest {
             searchService = searchService,
             workManager = androidx.work.WorkManager.getInstance(context),
             json = json,
-            ocrSessionStore = OcrSessionStore(json),
+            ocrSessionStore = OcrSessionStore(json, dao),
             ocrPdfWriter = PdfBoxOcrPdfWriter(),
         )
         val job = OcrJobEntity(
@@ -131,7 +134,7 @@ class OcrJobPipelineTest {
     }
 
     @Test
-    fun pauseAndResumeUpdateState() = runTest {
+    fun pauseAndResumeUpdateState() = runBlocking {
         val dao = FakeOcrJobDao()
         val pipeline = OcrJobPipeline(
             ocrJobDao = dao,
@@ -139,7 +142,7 @@ class OcrJobPipelineTest {
             searchService = RecordingSearchService(),
             workManager = androidx.work.WorkManager.getInstance(context),
             json = json,
-            ocrSessionStore = OcrSessionStore(json),
+            ocrSessionStore = OcrSessionStore(json, dao),
         )
         val pending = OcrJobEntity(
             id = "doc::1",
@@ -160,7 +163,7 @@ class OcrJobPipelineTest {
     }
 
     @Test
-    fun failMarksJobFailedWhenRetryIsNotAllowed() = runTest {
+    fun failMarksJobFailedWhenRetryIsNotAllowed() = runBlocking {
         val dao = FakeOcrJobDao()
         val pipeline = OcrJobPipeline(
             ocrJobDao = dao,
@@ -168,7 +171,7 @@ class OcrJobPipelineTest {
             searchService = RecordingSearchService(),
             workManager = androidx.work.WorkManager.getInstance(context),
             json = json,
-            ocrSessionStore = OcrSessionStore(json),
+            ocrSessionStore = OcrSessionStore(json, dao),
         )
         val job = OcrJobEntity(
             id = "doc::1",
@@ -233,7 +236,7 @@ private class FakeOcrJobDao : OcrJobDao {
     override suspend fun all(): List<OcrJobEntity> = entities.values.toList()
 
     override suspend fun jobsForDocument(documentKey: String): List<OcrJobEntity> =
-        entities.values.filter { it.documentKey == documentKey }
+        entities.values.filter { it.documentKey == documentKey }.sortedBy { it.pageIndex }
 
     override fun observeJobsForDocument(documentKey: String): Flow<List<OcrJobEntity>> = flow
 
@@ -271,4 +274,9 @@ private class RecordingSearchService : DocumentSearchService {
         lastPageText = pageText
     }
 }
+
+
+
+private var workManagerInitialized: Boolean = false
+
 

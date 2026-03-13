@@ -96,7 +96,10 @@ import com.aymanelbanhawy.editor.core.security.RedactionStatus
 import com.aymanelbanhawy.editor.core.security.RestrictedAction
 import com.aymanelbanhawy.editor.core.security.TenantPolicyHooksModel
 import com.aymanelbanhawy.editor.core.security.WatermarkModel
+import com.aymanelbanhawy.editor.core.workflow.CompareMarkerModel
 import com.aymanelbanhawy.editor.core.workflow.CompareReportModel
+import com.aymanelbanhawy.editor.core.workflow.ExportImageFormat
+import com.aymanelbanhawy.editor.core.workflow.PdfOptimizationPreset
 import com.aymanelbanhawy.editor.core.workflow.FormTemplateModel
 import com.aymanelbanhawy.editor.core.workflow.WorkflowRecipientModel
 import com.aymanelbanhawy.editor.core.workflow.WorkflowRecipientRole
@@ -724,6 +727,98 @@ class EditorViewModel(
         }
     }
 
+    fun openCompareMarker(marker: CompareMarkerModel) {
+        focusSearchHit(marker.pageIndex, marker.bounds, marker.summary, searchResults.value.selectedHitIndex)
+        activePanel.value = WorkspacePanel.Review
+        sidebarVisible.value = true
+    }
+
+    fun exportDocumentAsText() {
+        val document = session.state.value.document ?: return
+        if (!ensureExportAllowed(document)) return
+        viewModelScope.launch {
+            runCatching {
+                appContainer.workflowRepository.exportDocumentAsText(
+                    document = document,
+                    destination = exportDirectory().resolve(document.documentRef.displayName.removeSuffix(".pdf") + ".txt"),
+                )
+            }.onSuccess { result ->
+                localEvents.emit(EditorSessionEvent.UserMessage("Exported text to ${result.artifacts.first().displayName}"))
+                recordActivity(ActivityEventType.Exported, "Exported text")
+                recordSecurityAudit(AuditEventType.ProtectedExported, "Exported text copy", mapOf("path" to result.artifacts.first().path))
+            }.onFailure {
+                localEvents.emit(EditorSessionEvent.UserMessage(it.message ?: "Text export failed"))
+            }
+        }
+    }
+
+    fun exportDocumentAsMarkdown() {
+        val document = session.state.value.document ?: return
+        if (!ensureExportAllowed(document)) return
+        viewModelScope.launch {
+            runCatching {
+                appContainer.workflowRepository.exportDocumentAsMarkdown(
+                    document = document,
+                    destination = exportDirectory().resolve(document.documentRef.displayName.removeSuffix(".pdf") + ".md"),
+                )
+            }.onSuccess { result ->
+                localEvents.emit(EditorSessionEvent.UserMessage("Exported markdown to ${result.artifacts.first().displayName}"))
+                recordActivity(ActivityEventType.Exported, "Exported markdown")
+                recordSecurityAudit(AuditEventType.ProtectedExported, "Exported markdown copy", mapOf("path" to result.artifacts.first().path))
+            }.onFailure {
+                localEvents.emit(EditorSessionEvent.UserMessage(it.message ?: "Markdown export failed"))
+            }
+        }
+    }
+
+    fun exportDocumentAsImages() {
+        val document = session.state.value.document ?: return
+        if (!ensureExportAllowed(document)) return
+        viewModelScope.launch {
+            runCatching {
+                appContainer.workflowRepository.exportDocumentAsImages(
+                    document = document,
+                    outputDirectory = exportDirectory().resolve(document.documentRef.displayName.removeSuffix(".pdf") + "-images"),
+                    format = ExportImageFormat.Png,
+                )
+            }.onSuccess { result ->
+                localEvents.emit(EditorSessionEvent.UserMessage("Exported ${result.artifacts.size} page image(s)"))
+                recordActivity(ActivityEventType.Exported, "Exported images")
+                recordSecurityAudit(AuditEventType.ProtectedExported, "Exported page images", mapOf("count" to result.artifacts.size.toString()))
+            }.onFailure {
+                localEvents.emit(EditorSessionEvent.UserMessage(it.message ?: "Image export failed"))
+            }
+        }
+    }
+
+    fun optimizeDocument(preset: PdfOptimizationPreset) {
+        val document = session.state.value.document ?: return
+        if (!ensureExportAllowed(document)) return
+        viewModelScope.launch {
+            runCatching {
+                appContainer.workflowRepository.optimizeDocument(
+                    document = document,
+                    destination = exportDirectory().resolve("${document.documentRef.displayName.removeSuffix(".pdf")}_${preset.name.lowercase()}.pdf"),
+                    preset = preset,
+                )
+            }.onSuccess { result ->
+                localEvents.emit(EditorSessionEvent.UserMessage("Optimized copy saved as ${result.destination.name}"))
+                recordActivity(ActivityEventType.Exported, "Optimized ${preset.name.lowercase()} copy")
+                recordSecurityAudit(
+                    AuditEventType.ProtectedExported,
+                    "Optimized export created",
+                    mapOf(
+                        "preset" to preset.name,
+                        "path" to result.destination.absolutePath,
+                        "originalSize" to result.originalSizeBytes.toString(),
+                        "optimizedSize" to result.optimizedSizeBytes.toString(),
+                    ),
+                )
+            }.onFailure {
+                localEvents.emit(EditorSessionEvent.UserMessage(it.message ?: "Optimize failed"))
+            }
+        }
+    }
     fun createCurrentFormTemplate(name: String) {
         val document = session.state.value.document ?: return
         viewModelScope.launch {
@@ -1422,6 +1517,21 @@ class EditorViewModel(
     fun reorderFirstPageToEnd() { session.state.value.document?.takeIf { it.pages.size >= 2 }?.let { session.execute(ReorderPagesCommand(0, it.pages.lastIndex)); refreshThumbnailsAsync() } }
     fun undo() { session.undo(); refreshThumbnailsAsync() }
     fun redo() { session.redo(); refreshThumbnailsAsync() }
+    private fun ensureExportAllowed(document: com.aymanelbanhawy.editor.core.model.DocumentModel): Boolean {
+        val decision = appContainer.securityRepository.evaluatePolicy(document.security, RestrictedAction.Export)
+        if (decision.allowed) return true
+        localEvents.tryEmit(EditorSessionEvent.UserMessage(decision.message ?: "Export blocked"))
+        viewModelScope.launch {
+            recordSecurityAudit(
+                AuditEventType.PolicyBlocked,
+                decision.message ?: "Export blocked",
+                mapOf("action" to RestrictedAction.Export.name),
+            )
+        }
+        return false
+    }
+
+    private fun exportDirectory(): File = File(appContainer.appContext.cacheDir, "exports").apply { mkdirs() }
     fun saveEditable() {
         val document = session.state.value.document ?: return
         val decision = appContainer.securityRepository.evaluatePolicy(document.security, RestrictedAction.Export)
@@ -1841,6 +1951,10 @@ class EditorViewModel(
 }
 
 private fun Set<Int>.toggle(index: Int): Set<Int> = if (index in this) this - index else this + index
+
+
+
+
 
 
 

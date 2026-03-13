@@ -2,7 +2,9 @@ package com.aymanelbanhawy.aiassistant.core
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -113,9 +115,18 @@ class AndroidLocalAiAppDiscovery(
         val pm = context.packageManager
         KNOWN_PACKAGES.mapNotNull { packageName ->
             runCatching {
-                val info = pm.getApplicationInfo(packageName, PackageManager.ApplicationInfoFlags.of(0))
+                val info = resolveApplicationInfo(pm, packageName)
                 LocalAiAppInfo(packageName = packageName, appName = pm.getApplicationLabel(info).toString())
             }.getOrNull()
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun resolveApplicationInfo(pm: PackageManager, packageName: String): ApplicationInfo {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            pm.getApplicationInfo(packageName, PackageManager.ApplicationInfoFlags.of(0))
+        } else {
+            pm.getApplicationInfo(packageName, 0)
         }
     }
 
@@ -570,6 +581,10 @@ private fun modelContextHint(modelId: String): Int? {
 }
 
 private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
+
+
+
+
 
 
 

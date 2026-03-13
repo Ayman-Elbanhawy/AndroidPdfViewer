@@ -64,7 +64,7 @@ class EditorCoreContainer(
         encodeDefaults = true
         classDiscriminator = "_type"
     }
-    private val ocrSessionStore = OcrSessionStore(json)
+    private val ocrSessionStore = OcrSessionStore(json, database.ocrJobDao())
     private val secureFileCipher = AndroidSecureFileCipher(appContext)
     private val enterpriseCredentialStore = EnterpriseCredentialStore(appContext, json)
     private val enterpriseRemoteRegistry = EnterpriseRemoteRegistry(appContext, json)
@@ -173,6 +173,9 @@ class EditorCoreContainer(
         activityEventDao = database.activityEventDao(),
         enterpriseAdminRepository = enterpriseAdminRepository,
         extractionService = extractionService,
+        ocrSessionStore = ocrSessionStore,
+        documentRepository = documentRepository,
+        scanImportService = scanImportService,
         json = json,
     )
     val collaborationRepository: CollaborationRepository = DefaultCollaborationRepository(
@@ -212,6 +215,8 @@ class EditorCoreContainer(
 
     fun recentDocumentDao() = database.recentDocumentDao()
 }
+
+
 
 
 

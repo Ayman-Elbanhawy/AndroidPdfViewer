@@ -14,6 +14,7 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aymanelbanhawy.editor.core.session.EditorSessionEvent
 import com.aymanelbanhawy.enterprisepdf.app.editor.EditorScreen
+import com.aymanelbanhawy.enterprisepdf.app.editor.EditorWorkflowExportActions
 import com.aymanelbanhawy.enterprisepdf.app.editor.EditorViewModel
 import com.aymanelbanhawy.enterprisepdf.app.organize.OrganizePagesScreen
 import com.aymanelbanhawy.enterprisepdf.app.theme.EnterprisePdfTheme
@@ -38,6 +39,16 @@ class MainActivity : ComponentActivity() {
                     val replaceEditImageLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? -> uri?.let(viewModel::replaceSelectedImage) }
                     val profileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? -> uri?.let(viewModel::importFormProfile) }
                     val scanImagesLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris: List<Uri> -> viewModel.importScanImages(uris) }
+                    val workflowExportActions = EditorWorkflowExportActions(
+                        onCompareAgainstLatestSnapshot = viewModel::compareAgainstLatestSnapshot,
+                        onOpenCompareMarker = viewModel::openCompareMarker,
+                        onExportText = viewModel::exportDocumentAsText,
+                        onExportMarkdown = viewModel::exportDocumentAsMarkdown,
+                        onExportImages = viewModel::exportDocumentAsImages,
+                        onOptimizeLight = { viewModel.optimizeDocument(com.aymanelbanhawy.editor.core.workflow.PdfOptimizationPreset.Light) },
+                        onOptimizeBalanced = { viewModel.optimizeDocument(com.aymanelbanhawy.editor.core.workflow.PdfOptimizationPreset.Balanced) },
+                        onOptimizeStrong = { viewModel.optimizeDocument(com.aymanelbanhawy.editor.core.workflow.PdfOptimizationPreset.Strong) },
+                    )
 
                     if (state.organizeVisible) {
                         OrganizePagesScreen(
@@ -149,7 +160,7 @@ class MainActivity : ComponentActivity() {
                             onCreateShareLink = viewModel::createShareLink,
                             onCreateSnapshot = viewModel::createVersionSnapshot,
                             onSyncNow = viewModel::syncCollaboration,
-                            onCompareAgainstLatestSnapshot = viewModel::compareAgainstLatestSnapshot,
+                            workflowExportActions = workflowExportActions,
                             onCreateFormTemplate = viewModel::createCurrentFormTemplate,
                             onCreateSignatureRequest = viewModel::createSignatureRequest,
                             onCreateFormRequest = viewModel::createFormRequest,
@@ -239,6 +250,9 @@ class MainActivity : ComponentActivity() {
         startActivity(Intent.createChooser(sendIntent, event.title))
     }
 }
+
+
+
 
 
 

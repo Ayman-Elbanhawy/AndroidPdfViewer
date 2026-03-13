@@ -26,8 +26,12 @@ class CriticalWorkflowSmokeTest {
         assertThat(thumbnails).isNotEmpty()
         assertThat(File(thumbnails.first().imagePath).exists()).isTrue()
 
-        val indexed = runBlocking { container.documentSearchService.reindex(opened) }
-        assertThat(indexed.hits.size).isAtLeast(0)
+        val indexed = runBlocking { container.documentSearchService.ensureIndex(opened, forceRefresh = true) }
+        assertThat(indexed).isNotEmpty()
+
+        val searchResults = runBlocking { container.documentSearchService.search(opened, "pdf") }
+        assertThat(searchResults.indexedPageCount).isAtLeast(0)
+        assertThat(searchResults.hits.size).isAtLeast(0)
 
         val output = File(context.cacheDir, "smoke-output.pdf")
         val saved = runBlocking {

@@ -3,7 +3,9 @@ package com.aymanelbanhawy.editor.core.workflow
 import com.aymanelbanhawy.editor.core.forms.FormFieldType
 import com.aymanelbanhawy.editor.core.model.DocumentModel
 import com.aymanelbanhawy.editor.core.model.NormalizedRect
+import com.aymanelbanhawy.editor.core.model.OpenDocumentRequest
 import com.aymanelbanhawy.editor.core.model.PdfDocumentRef
+import java.io.File
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -187,10 +189,53 @@ data class WorkflowStateModel(
     val requests: List<WorkflowRequestModel> = emptyList(),
 )
 
+@Serializable
+enum class ExportImageFormat {
+    Png,
+    Jpeg,
+}
+
+@Serializable
+enum class PdfOptimizationPreset {
+    Light,
+    Balanced,
+    Strong,
+}
+
+@Serializable
+data class ExportArtifactModel(
+    val path: String,
+    val displayName: String,
+    val mimeType: String,
+    val pageIndex: Int? = null,
+)
+
+data class ExportBundleResult(
+    val title: String,
+    val artifacts: List<ExportArtifactModel>,
+)
+
+data class OptimizationResult(
+    val destination: File,
+    val preset: PdfOptimizationPreset,
+    val originalSizeBytes: Long,
+    val optimizedSizeBytes: Long,
+)
+
+data class CreatedPdfResult(
+    val request: OpenDocumentRequest,
+    val sourceImageCount: Int,
+)
+
 interface WorkflowRepository {
     suspend fun compareReports(documentKey: String): List<CompareReportModel>
     suspend fun compareDocuments(document: DocumentModel, comparedRef: PdfDocumentRef): CompareReportModel
     suspend fun compareWithSnapshot(document: DocumentModel, snapshotPath: String, snapshotLabel: String): CompareReportModel
+    suspend fun exportDocumentAsText(document: DocumentModel, destination: File): ExportBundleResult
+    suspend fun exportDocumentAsMarkdown(document: DocumentModel, destination: File): ExportBundleResult
+    suspend fun exportDocumentAsImages(document: DocumentModel, outputDirectory: File, format: ExportImageFormat = ExportImageFormat.Png): ExportBundleResult
+    suspend fun createPdfFromImages(imageFiles: List<File>, displayName: String): CreatedPdfResult
+    suspend fun optimizeDocument(document: DocumentModel, destination: File, preset: PdfOptimizationPreset): OptimizationResult
     suspend fun formTemplates(documentKey: String): List<FormTemplateModel>
     suspend fun createFormTemplate(document: DocumentModel, name: String): FormTemplateModel
     suspend fun exportFormTemplate(templateId: String, destination: java.io.File): java.io.File

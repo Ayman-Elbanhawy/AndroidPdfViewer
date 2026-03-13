@@ -1,162 +1,192 @@
 # AndroidPdfViewer Enterprise Fork
 
-This repository started as the AndroidPdfViewer project and now contains two connected product layers:
+This fork keeps the original Pdfium-based Android PDF renderer as a reusable module and layers a Kotlin, AndroidX, Material 3, Compose-based enterprise document platform on top of it.
 
-- `viewer-engine` / `android-pdf-viewer`: the legacy Java PDF rendering engine, preserved as a reusable module
-- `editor-core`, `ai-assistant`, and `app`: a Kotlin, AndroidX, Material 3, and Compose enterprise PDF platform built around that renderer
+The repo is no longer only a viewer widget project. It now contains a modular mobile PDF editor and workflow application with editing, OCR, AI, collaboration, connectors, enterprise policy, diagnostics, migration, and release-engineering support.
 
-The viewer is still available as a low-level widget, but this fork is now a modular PDF editing and workflow application with enterprise-grade platform hooks.
-
-## Repository Structure
+## Modules
 
 - `:viewer-engine`
-  - Existing AndroidPdfViewer rendering engine
+  - Legacy Java rendering engine based on AndroidPdfViewer
   - Java interop preserved
-  - Page coordinate mapping and overlay integration hooks
+  - Overlay hooks, coordinate mapping, and viewer bridge components
 - `:editor-core`
-  - Document sessions, persistence, Room, WorkManager, migration engine, diagnostics, OCR, security, collaboration, workflows, connectors, and write engine
+  - Document sessions, write engine, OCR, search, Room persistence, WorkManager jobs, migrations, diagnostics, security, collaboration, connectors, workflows, and enterprise services
 - `:ai-assistant`
-  - Provider runtime, secure provider settings, grounded citations, multi-document AI workspace, and policy-aware AI orchestration
+  - Real AI provider runtime, secure provider configuration, grounded citations, multi-document workspace, and enterprise policy-aware orchestration
 - `:app`
-  - Compose application shell, editor workspaces, diagnostics UI, settings/admin UI, connector UI, collaboration UI, and release configuration
+  - Compose application shell, editor workspaces, admin/settings UI, diagnostics UI, connector UI, AI UI, collaboration UI, and release configuration
 
-## What This Fork Now Includes
+## Product Areas
 
-### Core editing and document workflows
-- Session-based document editing with `EditorSession`
-- Undo/redo and command-based mutations
-- Autosave, manual save, save-as, export copy, crash-safe restore
-- Direct PDF mutation write engine with rollback, checksums, save strategies, and sidecar migration compatibility
-- Text objects, image objects, annotation overlays, page organization, and structural page edits
+### Editing and write pipeline
+- Session-based editing through `EditorSession`
+- Command-based undo and redo
+- Direct PDF mutation as the primary persistence model
+- Legacy `.pageedits.json` migration support for backward compatibility
+- Save, save-as, export copy, rollback, checksum verification, transaction logging, and file locking
+- Text edits, image edits, annotations, page reorder, page insert/delete/duplicate/extract/rotate, blank-page creation, and structural page persistence
 
 ### Annotation and review
-- Highlight, underline, strikeout, ink, rectangle, ellipse, arrow, line, sticky note, and text box annotations
-- Selection, move, resize, recolor, duplicate, delete
-- Review comments, threads, replies, resolve/reopen, mentions, activity feed, share links, and review artifacts
-- Background sync queue and remote collaboration runtime with offline replay and conflict handling
+- Highlight, underline, strikeout, freehand ink, rectangle, ellipse, arrow, line, sticky note, and text box annotations
+- Selection, recolor, resize, move, duplicate, and delete operations
+- Review threads, replies, mentions, resolve/reopen, activity feed, share links, version-linked review state, and offline sync queue support
 
 ### Organize pages
-- Page thumbnails and caching
-- Drag/reorder support foundations
+- Page thumbnail generation and caching
+- Drag/reorder support
 - Rotate, delete, duplicate, extract, insert blank page, insert image page, merge, split, and batch operations
 
 ### Forms and signatures
-- AcroForm discovery and field modeling
-- Text, multiline, checkbox, radio, dropdown, date, and signature fields
-- Validation engine and form navigation
-- Signature capture, saved signatures, visible signature placement, certificate-backed signing foundation, and verification state tracking
+- AcroForm field detection and modeling
+- Text, multiline, checkbox, radio, dropdown, date, and signature field support
+- Form validation and navigation
+- Handwritten signature appearance capture
+- Certificate-backed digital signature support
+- Signature verification state, invalidation after edits, request-sign metadata, signer ordering, reminder metadata, expiration metadata, and reusable form templates
 
-### Security and protection
-- App lock, secure local encryption helpers, document protection settings
-- Saved-output password protection and permission flags
-- Watermark support on export
-- Metadata scrubber
-- Redaction mark, preview, and irreversible apply pipeline
-- Inspection reports and audit trail events
-- Tenant policy enforcement for export/share/print/copy restrictions
+### Security and protected output
+- Password protection and permission flags written into saved output
+- Watermarking and policy-driven export watermark enforcement
+- Metadata scrub support
+- Irreversible redaction apply pipeline
+- Inspection reports for metadata, protection flags, hidden content flags, redactions, and signatures
+- Audit trail events and policy-enforced export/share restrictions
 
-### OCR, search, and scan ingestion
-- ML Kit-based OCR pipeline wiring and searchable-session support
-- OCR settings, OCR queue state, diagnostics, and resumable job handling
-- Document search, bookmarks/outline, recent searches, text extraction, selection copy/share
-- Scan import workflow and searchable-PDF pipeline foundations
+### OCR, search, and scan import
+- ML Kit-based OCR runtime
+- Searchable PDF generation from imported scans and images
+- OCR settings, job lifecycle, resumable persistence, diagnostics, and progress surfaces
+- OCR text integrated into search, copy text, and AI grounding
+- Search, bookmarks/outline, recent searches, and text extraction
 
 ### AI assistant
-- Ask PDF, summarize document, summarize page, explain selection, extract action items, semantic search
-- Page-grounded citations and region references
-- Redaction suggestions and form autofill suggestions
-- Multi-document AI workspace with pinned files, saved document sets, conversation history, and grounded cross-document answers
+- Ask PDF, summarize document, summarize page, explain selection, extract action items, suggest next actions, and semantic search
+- Grounded citations to page and page-region coordinates
+- Multi-document AI workspace with pinned files, saved document sets, conversation history, and workspace summaries
 - Real provider runtime for:
   - local Ollama-compatible endpoints
   - remote Ollama-compatible endpoints
   - OpenAI API
   - generic OpenAI-compatible APIs
-- Secure credential storage, provider settings UI, capability discovery, streaming, cancellation, retries, and policy gating
+- Secure provider credential storage using Android Keystore-backed encryption
+- Provider discovery, model enumeration, health checks, capability metadata, streaming, cancellation, retry, timeout, and enterprise policy gating
 
-### Enterprise platform and deployment hooks
-- Personal mode and enterprise mode authentication/session architecture
-- Tenant bootstrap, policy sync, entitlement refresh, telemetry queueing, diagnostics bundles
-- Connector abstraction with production routing for local files, document-provider style flows, WebDAV, and S3-compatible storage
-- DLP-aware export and destination filtering
-- Managed app restriction support for tenant bootstrap, AI restrictions, connector restrictions, telemetry policy, watermarking, and metadata scrub enforcement
-- Release readiness validation, SBOM generation, license reporting, smoke test runner, and deployment docs
+### Collaboration and workflow automation
+- Remote collaboration adapter with offline queue, optimistic replay, conflict handling, and WorkManager sync
+- Compare workflow with page-level change markers and reviewable change summaries
+- Share links, comments, replies, activity events, and review snapshots
+- Request-sign workflow, form request workflow, lifecycle tracking, reminder events, and activity integration
 
-### Quality, diagnostics, and upgrade safety
-- Runtime diagnostics snapshot with migration summary, cache state, queue depth, provider health, connector state, and recent failures
-- Startup repair for interrupted saves, interrupted OCR, interrupted sync, corrupt drafts, and corrupt session sidecars
-- Versioned migration engine with compatibility mode for older local sessions
-- Recovery, benchmark, smoke, and regression coverage
-- Accessibility pass on major Compose surfaces with improved semantics and touch targets
+### Enterprise platform hooks
+- Personal mode and enterprise mode session architecture
+- Tenant bootstrap, cached policy sync, entitlements, telemetry queueing, and diagnostics bundles
+- Managed app configuration support for tenant bootstrap, AI restrictions, connector restrictions, telemetry policy, default provider endpoints, watermarking, metadata scrub, and external-sharing controls
+
+### Connectors and storage
+- Local file routing
+- Android document provider support
+- WebDAV connector support
+- S3-compatible connector support
+- Capability model for future enterprise connectors
+- Conflict-aware remote metadata handling with etag/checksum, modified time, and version id
+- Secure temp/cache lifecycle and DLP-aware destination filtering
+
+### Diagnostics, recovery, and upgrade safety
+- Runtime diagnostics snapshot with provider health, sync backlog, OCR queue, connector state, recent failures, and migration reports
+- Startup repair for interrupted saves, interrupted sync, interrupted OCR, corrupted drafts, and stale local artifacts
+- Versioned migration framework for Room, drafts, AI settings, connector/session state, OCR/search data, and older mutation/session formats
+- Benchmark, smoke, regression, and migration-oriented test coverage
 
 ## Build Variants
 
-The app module includes these product flavors:
+The app module exposes these product flavors:
 
 - `dev`
 - `qa`
 - `prod`
 - `enterpriseDemo`
 
-Recommended local build targets:
+Recommended local commands:
 
 ```powershell
+.\gradlew.bat clean
 .\gradlew.bat :editor-core:test
 .\gradlew.bat :ai-assistant:test
-.\gradlew.bat :app:compileDevDebugKotlin
 .\gradlew.bat :app:assembleDevDebug
+.\gradlew.bat :app:assembleProdDebug
 ```
 
-## Release and Compliance Gates
+## Release Gates and CI
 
-Production readiness checks are enforced with Gradle and CI.
+The repo now includes repo-wide release gates that block merge when production source sets contain prohibited placeholders or fake-style implementations.
 
-Useful commands:
+Protected patterns include:
+- `Fake*`
+- `NoOp*`
+- `InMemory*`
+- `Placeholder*`
+- `TODO`
+- `example.invalid`
+- sidecar-primary save-path references in production code
+
+CI workflows live in `.github/workflows/` and now cover:
+- grep-based release gates
+- `editor-core` lint and unit tests
+- `ai-assistant` lint and unit tests
+- app prod lint/build/unit gates
+- targeted migration and upgrade-safety tests
+- targeted OCR, collaboration, compare/export/protection, connector, forms/signature, and workflow regression tests
+- instrumentation and benchmark workflows for core enterprise flows
+- SBOM and license reporting
+- signed prod artifact generation hooks
+
+Useful local commands:
 
 ```powershell
 .\gradlew.bat :app:validateReleaseReadiness
-.\gradlew.bat :app:generateSbom :app:generateLicenseReport
+.\gradlew.bat :editor-core:lint :editor-core:test
+.\gradlew.bat :ai-assistant:lint :ai-assistant:test
+.\gradlew.bat :app:lintProdDebug :app:assembleProdDebug
+.\gradlew.bat :app:testProdDebugUnitTest
 powershell -ExecutionPolicy Bypass -File .\scripts\run-smoke-tests.ps1
 ```
 
-`validateReleaseReadiness` fails if production code still contains:
+## Managed Configuration
 
-- placeholder endpoints such as `example.invalid`
-- unresolved license entries
-- fake, no-op, in-memory, example, or placeholder production implementations
-- placeholder or debug certificate pin configuration
+Managed restrictions support enterprise deployment scenarios for:
+- tenant bootstrap and issuer/base URLs
+- AI provider defaults and restrictions
+- connector restrictions and allowed destinations
+- telemetry policy
+- forced watermarking
+- forced metadata scrub
+- external sharing controls
+
+See:
+- `docs/deployment/managed-config.md`
+- `docs/deployment/key-rotation.md`
+- `docs/deployment/certificate-pinning.md`
+- `docs/security/security-review-checklist.md`
+- `docs/release/release-checklist.md`
+- `docs/release/smoke-tests.md`
+- `docs/privacy/data-safety.md`
 
 ## Upgrade and Migration Safety
 
-The current implementation includes a versioned upgrade and repair path for existing users.
-
-On startup the app can:
-
-- back up local migration-relevant state
-- upgrade legacy `.pageedits.json` sessions into the newer mutation model
-- preserve compatibility for older drafts and sessions while upgrading them forward
+The app includes a versioned migration and repair pipeline. On startup it can:
+- back up upgrade-relevant state
+- migrate legacy page-edit sessions forward
+- preserve and upgrade older drafts and OCR/search/session state
 - resume interrupted OCR and sync work
-- quarantine corrupted drafts and sidecar session files
-- record migration reports for diagnostics and support export
-
-## Managed Enterprise Configuration
-
-Managed restrictions now support:
-
-- tenant bootstrap and issuer configuration
-- AI provider defaults and restrictions
-- connector restrictions and destination filtering
-- telemetry policy
-- watermark enforcement
-- metadata scrub enforcement
-- external sharing controls
-
-See [docs/deployment/managed-config.md](docs/deployment/managed-config.md).
+- quarantine corrupted drafts or outdated local artifacts
+- generate supportable migration reports for diagnostics export
 
 ## Legacy Viewer Usage
 
-The original AndroidPdfViewer engine is still available for apps that only need rendering.
+The original viewer engine is still available for lower-level rendering use cases.
 
-### Include `PDFView` in a layout
+### XML usage
 
 ```xml
 <com.github.barteksc.pdfviewer.PDFView
@@ -165,7 +195,7 @@ The original AndroidPdfViewer engine is still available for apps that only need 
     android:layout_height="match_parent" />
 ```
 
-### Load a PDF
+### Java usage
 
 ```java
 pdfView.fromUri(uri)
@@ -182,7 +212,7 @@ pdfView.fromUri(uri)
     .load();
 ```
 
-Other supported sources:
+Other sources remain supported:
 
 ```java
 pdfView.fromFile(file)
@@ -192,15 +222,9 @@ pdfView.fromAsset("sample.pdf")
 pdfView.fromSource(documentSource)
 ```
 
-### Legacy viewer notes
-- Link handling is supported through `LinkHandler`
-- Scroll handle integration is still supported
-- Fit policies remain available: `WIDTH`, `HEIGHT`, `BOTH`
-- Rendering quality can still be adjusted with `useBestQuality(true)`
+### Lightweight legacy edit/export surface
 
-## Lightweight PDF Edit API on `PDFView`
-
-This fork also keeps the direct lightweight edit/export API that was added to the legacy viewer surface for compatibility-oriented usage.
+The compatibility-oriented lightweight edit API on `PDFView` is still present:
 
 ```java
 PDFView pdfView = findViewById(R.id.pdfView);
@@ -229,13 +253,13 @@ File output = new File(getExternalFilesDir(null), "edited.pdf");
 pdfView.exportEditedPdf(output);
 ```
 
-Coordinates are normalized per page, so `RectF(0f, 0f, 1f, 1f)` maps to the whole page.
+Normalized coordinates still map `RectF(0f, 0f, 1f, 1f)` to the full page.
 
-## Current Library Notes
+## Notes
 
-- The historical AndroidPdfViewer 1.x branch remains separate at [AndroidPdfViewerV1](https://github.com/barteksc/AndroidPdfViewerV1)
-- This repository still builds on Pdfium-based rendering for the viewer engine
-- 16 KB page-size support and Play compatibility updates are included in this fork
+- Historical AndroidPdfViewer 1.x remains separate at [AndroidPdfViewerV1](https://github.com/barteksc/AndroidPdfViewerV1)
+- This fork still uses Pdfium-based rendering in the viewer layer
+- 16 KB page-size support and Play compatibility updates are included
 
 ## License
 

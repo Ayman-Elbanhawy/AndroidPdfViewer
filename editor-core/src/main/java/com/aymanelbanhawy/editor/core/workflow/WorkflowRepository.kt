@@ -18,6 +18,9 @@ import com.aymanelbanhawy.editor.core.forms.FormFieldType
 import com.aymanelbanhawy.editor.core.model.DocumentModel
 import com.aymanelbanhawy.editor.core.model.DocumentSourceType
 import com.aymanelbanhawy.editor.core.model.NormalizedRect
+import com.aymanelbanhawy.editor.core.ocr.OcrSessionStore
+import com.aymanelbanhawy.editor.core.repository.DocumentRepository
+import com.aymanelbanhawy.editor.core.scan.ScanImportService
 import com.aymanelbanhawy.editor.core.model.PdfDocumentRef
 import com.aymanelbanhawy.editor.core.search.PdfBoxTextExtractionService
 import com.aymanelbanhawy.editor.core.search.IndexedPageContent
@@ -36,8 +39,19 @@ class DefaultWorkflowRepository(
     private val activityEventDao: ActivityEventDao,
     private val enterpriseAdminRepository: EnterpriseAdminRepository,
     private val extractionService: PdfBoxTextExtractionService,
+    private val ocrSessionStore: OcrSessionStore,
+    private val documentRepository: DocumentRepository,
+    private val scanImportService: ScanImportService,
     private val json: Json,
 ) : WorkflowRepository {
+
+    private val fileWorkflowService = DocumentFileWorkflowService(
+        context = context,
+        extractionService = extractionService,
+        ocrSessionStore = ocrSessionStore,
+        documentRepository = documentRepository,
+        scanImportService = scanImportService,
+    )
 
     override suspend fun compareReports(documentKey: String): List<CompareReportModel> {
         return compareReportDao.forDocument(documentKey).map { it.toModel(json) }
@@ -82,6 +96,25 @@ class DefaultWorkflowRepository(
         )
     }
 
+    override suspend fun exportDocumentAsText(document: DocumentModel, destination: File): ExportBundleResult {
+        return fileWorkflowService.exportDocumentAsText(document, destination)
+    }
+
+    override suspend fun exportDocumentAsMarkdown(document: DocumentModel, destination: File): ExportBundleResult {
+        return fileWorkflowService.exportDocumentAsMarkdown(document, destination)
+    }
+
+    override suspend fun exportDocumentAsImages(document: DocumentModel, outputDirectory: File, format: ExportImageFormat): ExportBundleResult {
+        return fileWorkflowService.exportDocumentAsImages(document, outputDirectory, format)
+    }
+
+    override suspend fun createPdfFromImages(imageFiles: List<File>, displayName: String): CreatedPdfResult {
+        return fileWorkflowService.createPdfFromImages(imageFiles, displayName)
+    }
+
+    override suspend fun optimizeDocument(document: DocumentModel, destination: File, preset: PdfOptimizationPreset): OptimizationResult {
+        return fileWorkflowService.optimizeDocument(document, destination, preset)
+    }
     override suspend fun formTemplates(documentKey: String): List<FormTemplateModel> {
         return formTemplateDao.forDocument(documentKey).map { it.toModel(json) }
     }
@@ -545,4 +578,7 @@ private fun ActivityEventModel.toEntity(json: Json): ActivityEventEntity = Activ
     serverUpdatedAtEpochMillis = serverUpdatedAtEpochMillis,
     lastSyncedAtEpochMillis = lastSyncedAtEpochMillis,
 )
+
+
+
 

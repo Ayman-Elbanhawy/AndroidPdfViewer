@@ -37,6 +37,7 @@ import com.aymanelbanhawy.editor.core.collaboration.ReviewThreadModel
 import com.aymanelbanhawy.editor.core.collaboration.ReviewThreadState
 import com.aymanelbanhawy.editor.core.collaboration.ShareLinkModel
 import com.aymanelbanhawy.editor.core.collaboration.VersionSnapshotModel
+import com.aymanelbanhawy.editor.core.workflow.CompareMarkerModel
 import com.aymanelbanhawy.editor.core.workflow.CompareReportModel
 import com.aymanelbanhawy.editor.core.workflow.FormTemplateModel
 import com.aymanelbanhawy.editor.core.workflow.WorkflowRequestModel
@@ -64,6 +65,7 @@ fun ReviewSidebar(
     onAddThread: (String, String) -> Unit,
     onAddReply: (String, String) -> Unit,
     onToggleResolved: (String, Boolean) -> Unit,
+    onOpenCompareMarker: (CompareMarkerModel) -> Unit,
 ) {
     var draftTitle by remember { mutableStateOf("") }
     var draftMessage by remember { mutableStateOf("") }
@@ -84,9 +86,21 @@ fun ReviewSidebar(
                 Text("Recent compare", style = MaterialTheme.typography.titleMedium)
                 compareReports.take(3).forEach { report ->
                     Surface(shape = MaterialTheme.shapes.large, tonalElevation = 1.dp) {
-                        Column(modifier = Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Column(modifier = Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("${report.baselineDisplayName} vs ${report.comparedDisplayName}", style = MaterialTheme.typography.labelLarge)
                             Text(report.summary.summaryText, style = MaterialTheme.typography.bodySmall)
+                            report.pageChanges.take(3).forEach { change ->
+                                Text(change.summary, style = MaterialTheme.typography.bodySmall)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    change.markers.take(3).forEachIndexed { index, marker ->
+                                        IconTooltipButton(
+                                            icon = Icons.Outlined.CompareArrows,
+                                            tooltip = "Open diff ${change.pageIndex + 1}.${index + 1}",
+                                            onClick = { onOpenCompareMarker(marker) },
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }

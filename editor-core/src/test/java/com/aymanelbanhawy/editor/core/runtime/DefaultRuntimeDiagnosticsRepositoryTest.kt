@@ -68,7 +68,7 @@ class DefaultRuntimeDiagnosticsRepositoryTest {
         val root = File("build/runtime-test/${UUID.randomUUID()}").apply { mkdirs() }
         val context = TestContext(root)
         val workingDir = File(context.filesDir, "working-documents").apply { mkdirs() }
-        File(workingDir, "session.mutations.json").writeText("broken-sidecar")
+        File(workingDir, "session.mutations.json").writeText("broken-compatibility")
         val now = 1000L
         val repository = DefaultRuntimeDiagnosticsRepository(
             context = context,
@@ -96,7 +96,7 @@ class DefaultRuntimeDiagnosticsRepositoryTest {
 
         assertThat(repair.resumedOcrCount).isEqualTo(2)
         assertThat(repair.resumedSyncCount).isEqualTo(2)
-        assertThat(repair.quarantinedSidecarCount).isEqualTo(1)
+        assertThat(repair.quarantinedCompatibilityFileCount).isEqualTo(1)
         assertThat(File(workingDir, "session.mutations.json.corrupt").exists()).isTrue()
     }
 
@@ -331,4 +331,5 @@ private fun testSyncEntity(id: String, now: Long): SyncQueueEntity {
         tombstone = false,
     )
 }
+
 

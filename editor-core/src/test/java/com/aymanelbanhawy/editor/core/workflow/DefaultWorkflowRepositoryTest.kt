@@ -2,6 +2,8 @@ package com.aymanelbanhawy.editor.core.workflow
 
 import android.content.Context
 import android.content.ContextWrapper
+import android.graphics.Bitmap
+import android.graphics.Color
 import com.aymanelbanhawy.editor.core.data.ActivityEventDao
 import com.aymanelbanhawy.editor.core.data.ActivityEventEntity
 import com.aymanelbanhawy.editor.core.data.CompareReportDao
@@ -23,12 +25,23 @@ import com.aymanelbanhawy.editor.core.forms.FormDocumentModel
 import com.aymanelbanhawy.editor.core.forms.FormFieldModel
 import com.aymanelbanhawy.editor.core.forms.FormFieldType
 import com.aymanelbanhawy.editor.core.forms.FormFieldValue
+import com.aymanelbanhawy.editor.core.model.AnnotationExportMode
 import com.aymanelbanhawy.editor.core.model.DocumentModel
 import com.aymanelbanhawy.editor.core.model.DocumentSourceType
+import com.aymanelbanhawy.editor.core.model.DraftPayload
 import com.aymanelbanhawy.editor.core.model.NormalizedRect
+import com.aymanelbanhawy.editor.core.model.OpenDocumentRequest
 import com.aymanelbanhawy.editor.core.model.PageContentType
 import com.aymanelbanhawy.editor.core.model.PageModel
 import com.aymanelbanhawy.editor.core.model.PdfDocumentRef
+import com.aymanelbanhawy.editor.core.model.SelectionModel
+import com.aymanelbanhawy.editor.core.model.UndoRedoState
+import com.aymanelbanhawy.editor.core.ocr.OcrSessionStore
+import com.aymanelbanhawy.editor.core.repository.DefaultDocumentRepository
+import com.aymanelbanhawy.editor.core.repository.DocumentRepository
+import com.aymanelbanhawy.editor.core.repository.DraftRestoreResult
+import com.aymanelbanhawy.editor.core.scan.ScanImportOptions
+import com.aymanelbanhawy.editor.core.scan.ScanImportService
 import com.aymanelbanhawy.editor.core.search.PdfBoxTextExtractionService
 import com.google.common.truth.Truth.assertThat
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
@@ -71,6 +84,34 @@ class DefaultWorkflowRepositoryTest {
         assertThat(report.pageChanges).hasSize(1)
         assertThat(report.pageChanges.single().markers).isNotEmpty()
         assertThat(repository.compareReports(document(baseline).documentRef.sourceKey)).hasSize(1)
+    }
+
+    @Test
+    fun exportDocumentAsText_andMarkdown_writeStructuredOutput() = runBlocking {
+        val repository = repository()
+        val pdf = createPdf("export-${System.nanoTime()}.pdf", "alpha beta")
+        val document = document(pdf)
+
+        val textResult = repository.exportDocumentAsText(document, File(context.cacheDir, "export.txt"))
+        val markdownResult = repository.exportDocumentAsMarkdown(document, File(context.cacheDir, "export.md"))
+
+        assertThat(File(textResult.artifacts.first().path).readText()).contains("alpha beta")
+        assertThat(File(markdownResult.artifacts.first().path).readText()).contains("## Page 1")
+        assertThat(File(markdownResult.artifacts.first().path).readText()).contains("alpha beta")
+    }
+
+    @Test
+    fun optimizeDocument_createsExportCopy() = runBlocking {
+        val pdf = createPdf("optimize-${System.nanoTime()}.pdf", "compress me")
+        val document = document(pdf)
+        val repository = repository(documentRepository = RecordingDocumentRepository())
+        val destination = File(context.cacheDir, "optimized.pdf")
+
+        val result = repository.optimizeDocument(document, destination, PdfOptimizationPreset.Balanced)
+
+        assertThat(result.destination.exists()).isTrue()
+        assertThat(result.destination.length()).isGreaterThan(0L)
+        assertThat(result.preset).isEqualTo(PdfOptimizationPreset.Balanced)
     }
 
     @Test
@@ -127,7 +168,11 @@ class DefaultWorkflowRepositoryTest {
         assertThat(failure).isInstanceOf(SecurityException::class.java)
     }
 
-    private fun repository(state: EnterpriseAdminStateModel = EnterpriseAdminStateModel()): WorkflowRepository {
+    private fun repository(
+        state: EnterpriseAdminStateModel = EnterpriseAdminStateModel(),
+        documentRepository: DocumentRepository = RecordingDocumentRepository(),
+        scanImportService: ScanImportService = RecordingScanImportService(),
+    ): WorkflowRepository {
         return DefaultWorkflowRepository(
             context = context,
             compareReportDao = RecordingCompareReportDao(),
@@ -136,6 +181,9 @@ class DefaultWorkflowRepositoryTest {
             activityEventDao = RecordingActivityEventDao(),
             enterpriseAdminRepository = RecordingEnterpriseAdminRepository(state),
             extractionService = PdfBoxTextExtractionService(),
+            ocrSessionStore = OcrSessionStore(json, null),
+            documentRepository = documentRepository,
+            scanImportService = scanImportService,
             json = json,
         )
     }
@@ -252,6 +300,29 @@ private class RecordingEnterpriseAdminRepository(
         destination.parentFile?.mkdirs()
         destination.writeText(appSummary.toString())
         return destination
+    }
+}
+
+private class RecordingDocumentRepository : DocumentRepository {
+    override suspend fun open(request: OpenDocumentRequest): DocumentModel = error("Not used")
+    override suspend fun importPages(requests: List<OpenDocumentRequest>): List<PageModel> = error("Not used")
+    override suspend fun persistDraft(payload: DraftPayload, autosave: Boolean) = Unit
+    override suspend fun restoreDraft(sourceKey: String): DraftRestoreResult? = null
+    override suspend fun clearDraft(sourceKey: String) = Unit
+    override suspend fun save(document: DocumentModel, exportMode: AnnotationExportMode): DocumentModel = document
+    override suspend fun saveAs(document: DocumentModel, destination: File, exportMode: AnnotationExportMode): DocumentModel {
+        File(document.documentRef.workingCopyPath).copyTo(destination, overwrite = true)
+        return document.copy(documentRef = document.documentRef.copy(sourceKey = destination.absolutePath, workingCopyPath = destination.absolutePath))
+    }
+    override suspend fun split(document: DocumentModel, request: com.aymanelbanhawy.editor.core.organize.SplitRequest, outputDirectory: File): List<File> = emptyList()
+    override fun createAutosaveTempFile(sessionId: String): File = File.createTempFile(sessionId, ".json")
+}
+
+private class RecordingScanImportService : ScanImportService {
+    override suspend fun importImages(imageFiles: List<File>, options: ScanImportOptions): OpenDocumentRequest {
+        val destination = File(imageFiles.first().parentFile, options.displayName)
+        imageFiles.first().copyTo(destination, overwrite = true)
+        return OpenDocumentRequest.FromFile(destination.absolutePath, displayNameOverride = destination.name)
     }
 }
 

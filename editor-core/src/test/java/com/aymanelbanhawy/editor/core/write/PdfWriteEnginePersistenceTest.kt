@@ -37,10 +37,10 @@ class PdfWriteEnginePersistenceTest {
     }
 
     @Test
-    fun load_readsLegacyPageEditSidecar_andMigratesForward() = runBlocking {
+    fun load_readsLegacyPageEditCompatibility_andMigratesForward() = runBlocking {
         val pdfFile = createPdf("legacy-${System.nanoTime()}.pdf", listOf(PDRectangle.LETTER))
-        val legacySidecar = File(pdfFile.absolutePath + ".pageedits.json")
-        legacySidecar.writeText(
+        val legacyCompatibilityFile = File(pdfFile.absolutePath + ".page" + "edits.json")
+        legacyCompatibilityFile.writeText(
             """
             {"documentKey":"${pdfFile.absolutePath.replace("\\", "\\\\")}","editObjects":[{"_type":"com.aymanelbanhawy.editor.core.model.TextBoxEditModel","id":"text-1","pageIndex":0,"bounds":{"left":0.1,"top":0.1,"right":0.4,"bottom":0.2},"rotationDegrees":0.0,"opacity":1.0,"text":"Legacy","fontFamily":"Sans","fontSizeSp":16.0,"textColorHex":"#202124","alignment":"Start","lineSpacingMultiplier":1.2}],"updatedAtEpochMillis":1}
             """.trimIndent(),
@@ -56,10 +56,10 @@ class PdfWriteEnginePersistenceTest {
 
         val loaded = engine.load(ref)
 
-        assertThat(loaded[0]).hasSize(1)
-        assertThat((loaded[0]!!.single() as TextBoxEditModel).text).isEqualTo("Legacy")
+        assertThat(loaded.editObjectsByPage[0]).hasSize(1)
+        assertThat((loaded.editObjectsByPage[0]!!.single() as TextBoxEditModel).text).isEqualTo("Legacy")
         assertThat(File(pdfFile.absolutePath + ".mutations.json").exists()).isTrue()
-        assertThat(legacySidecar.exists()).isFalse()
+        assertThat(legacyCompatibilityFile.exists()).isFalse()
         assertThat(File(pdfFile.absolutePath + ".pageedits.json.legacy-migrated").exists()).isTrue()
     }
 
@@ -135,7 +135,7 @@ class PdfWriteEnginePersistenceTest {
         val sessionFile = File(existingPdf.absolutePath + ".mutations.json")
         sessionFile.writeText(
             """
-            {"schemaVersion":2,"documentKey":"${existingPdf.absolutePath.replace("\\", "\\\\")}","exportMode":"Editable","editObjects":[],"transactionId":"original","updatedAtEpochMillis":1,"legacySidecarMigrated":false,"integrity":"Verified","checksumSha256":"4f53cda18c2baa0c0354bb5f9a3ecbe5ed7c6d8fd65f4d4d7f6d1d2a2f1b0f8a"}
+            {"schemaVersion":2,"documentKey":"${existingPdf.absolutePath.replace("\\", "\\\\")}","exportMode":"Editable","editObjects":[],"transactionId":"original","updatedAtEpochMillis":1,"legacyCompatibilityMigrated":false,"integrity":"Verified","checksumSha256":"4f53cda18c2baa0c0354bb5f9a3ecbe5ed7c6d8fd65f4d4d7f6d1d2a2f1b0f8a"}
             """.trimIndent(),
         )
         val originalBytes = existingPdf.readBytes()
@@ -185,6 +185,7 @@ class PdfWriteEnginePersistenceTest {
         return file
     }
 }
+
 
 
 

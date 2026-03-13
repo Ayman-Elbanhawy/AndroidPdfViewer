@@ -1,5 +1,7 @@
 package com.aymanelbanhawy.editor.core.search
 
+import com.aymanelbanhawy.editor.core.data.OcrJobDao
+import com.aymanelbanhawy.editor.core.data.OcrJobEntity
 import com.aymanelbanhawy.editor.core.data.RecentSearchDao
 import com.aymanelbanhawy.editor.core.data.RecentSearchEntity
 import com.aymanelbanhawy.editor.core.data.SearchIndexDao
@@ -8,8 +10,16 @@ import com.aymanelbanhawy.editor.core.model.DocumentModel
 import com.aymanelbanhawy.editor.core.model.DocumentSourceType
 import com.aymanelbanhawy.editor.core.model.PageModel
 import com.aymanelbanhawy.editor.core.model.PdfDocumentRef
+import com.aymanelbanhawy.editor.core.ocr.OcrJobStatus
+import com.aymanelbanhawy.editor.core.ocr.OcrPageContent
 import com.aymanelbanhawy.editor.core.ocr.OcrSessionStore
+import com.aymanelbanhawy.editor.core.ocr.OcrSettingsModel
+import com.aymanelbanhawy.editor.core.ocr.OcrTextBlockModel
+import com.aymanelbanhawy.editor.core.ocr.OcrTextElementModel
+import com.aymanelbanhawy.editor.core.ocr.OcrTextLineModel
 import com.google.common.truth.Truth.assertThat
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import org.junit.Test
@@ -87,6 +97,63 @@ class DefaultDocumentSearchServiceTest {
         assertThat(selection?.text).doesNotContain("Clause B")
     }
 
+    @Test
+    fun ensureIndexLoadsPersistedOcrFromDatabaseBackedStore() = runTest {
+        val ocrDao = FakeSearchOcrJobDao()
+        val ocrPage = OcrPageContent(
+            pageIndex = 0,
+            text = "Scanned invoice number 12345",
+            blocks = listOf(
+                OcrTextBlockModel(
+                    text = "Scanned invoice number 12345",
+                    bounds = bounds(0.1f, 0.2f, 0.9f, 0.3f),
+                    lines = listOf(
+                        OcrTextLineModel(
+                            text = "Scanned invoice number 12345",
+                            bounds = bounds(0.1f, 0.2f, 0.9f, 0.3f),
+                            elements = listOf(
+                                OcrTextElementModel(
+                                    text = "Scanned invoice number 12345",
+                                    bounds = bounds(0.1f, 0.2f, 0.9f, 0.3f),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            imageWidth = 1000,
+            imageHeight = 1600,
+        )
+        ocrDao.upsert(
+            OcrJobEntity(
+                id = "doc::0",
+                documentKey = document().documentRef.sourceKey,
+                pageIndex = 0,
+                imagePath = "/tmp/page.png",
+                status = OcrJobStatus.Completed.name,
+                resultText = ocrPage.text,
+                resultPageJson = json.encodeToString(OcrPageContent.serializer(), ocrPage),
+                settingsJson = json.encodeToString(OcrSettingsModel.serializer(), OcrSettingsModel(languageHints = listOf("en"))),
+                progressPercent = 100,
+                attemptCount = 1,
+                maxAttempts = 2,
+                createdAtEpochMillis = 1L,
+                updatedAtEpochMillis = 2L,
+            ),
+        )
+        val service = DefaultDocumentSearchService(
+            store = RoomSearchIndexStore(FakeSearchIndexDao(), FakeRecentSearchDao(), json),
+            extractionService = FakeTextExtractionService(emptyList()),
+            ocrSessionStore = OcrSessionStore(json, ocrDao),
+        )
+
+        val results = service.search(document(), "invoice")
+
+        assertThat(results.hits).hasSize(1)
+        assertThat(results.hits.first().source).isEqualTo(SearchContentSource.Ocr)
+        assertThat(results.hits.first().matchText).contains("invoice")
+    }
+
     private fun document(): DocumentModel {
         return DocumentModel(
             sessionId = "session",
@@ -157,4 +224,36 @@ private class FakeRecentSearchDao : RecentSearchDao {
     }
 }
 
+private class FakeSearchOcrJobDao : OcrJobDao {
+    private val entities = linkedMapOf<String, OcrJobEntity>()
+    private val flow = MutableStateFlow(emptyList<OcrJobEntity>())
 
+    override suspend fun upsert(entity: OcrJobEntity) {
+        entities[entity.id] = entity
+        emit()
+    }
+
+    override suspend fun upsertAll(entities: List<OcrJobEntity>) {
+        entities.forEach { this.entities[it.id] = it }
+        emit()
+    }
+
+    override suspend fun job(id: String): OcrJobEntity? = entities[id]
+
+    override suspend fun all(): List<OcrJobEntity> = entities.values.toList()
+
+    override suspend fun jobsForDocument(documentKey: String): List<OcrJobEntity> =
+        entities.values.filter { it.documentKey == documentKey }.sortedBy { it.pageIndex }
+
+    override fun observeJobsForDocument(documentKey: String): Flow<List<OcrJobEntity>> = flow
+
+    override suspend fun jobForPage(documentKey: String, pageIndex: Int): OcrJobEntity? =
+        entities.values.firstOrNull { it.documentKey == documentKey && it.pageIndex == pageIndex }
+
+    override suspend fun pendingOrResumable(documentKey: String, staleBeforeEpochMillis: Long, limit: Int): List<OcrJobEntity> =
+        entities.values.filter { it.documentKey == documentKey }.take(limit)
+
+    private fun emit() {
+        flow.value = entities.values.sortedBy { it.pageIndex }
+    }
+}

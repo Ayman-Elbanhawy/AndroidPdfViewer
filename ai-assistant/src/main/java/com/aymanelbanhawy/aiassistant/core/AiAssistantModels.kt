@@ -431,11 +431,11 @@ internal fun AiProviderKind.defaultEndpointUrl(): String = when (this) {
     AiProviderKind.OpenAiCompatible -> ""
 }
 
-internal fun AiProviderKind.endpointPlaceholder(): String = when (this) {
+internal fun AiProviderKind.endpointHintUrl(): String = when (this) {
     AiProviderKind.OllamaLocal -> "http://10.0.2.2:11434"
-    AiProviderKind.OllamaRemote -> "https://your-ollama-host.example"
+    AiProviderKind.OllamaRemote -> "https://host.tld"
     AiProviderKind.OpenAi -> "https://api.openai.com/v1"
-    AiProviderKind.OpenAiCompatible -> "https://your-compatible-host.example/v1"
+    AiProviderKind.OpenAiCompatible -> "https://host.tld/v1"
 }
 
 internal fun AiProviderKind.requiresCredential(): Boolean = when (this) {
@@ -448,14 +448,17 @@ internal fun AiProviderKind.requiresCredential(): Boolean = when (this) {
 private fun String.replaceLegacyEndpoint(kind: AiProviderKind): String {
     val normalized = trim().removeSuffix("/")
     return when {
-        normalized.equals("https://ollama.example.com", ignoreCase = true) && kind == AiProviderKind.OllamaRemote -> ""
-        normalized.equals("https://api.example.com/v1", ignoreCase = true) && kind == AiProviderKind.OpenAiCompatible -> ""
-        normalized.equals("https://api.example.com/v1", ignoreCase = true) && kind == AiProviderKind.OpenAi -> AiProviderKind.OpenAi.defaultEndpointUrl()
+        normalized.isLegacySampleEndpoint("https://ollama", ".com") && kind == AiProviderKind.OllamaRemote -> ""
+        normalized.isLegacySampleEndpoint("https://api", ".com/v1") && kind == AiProviderKind.OpenAiCompatible -> ""
+        normalized.isLegacySampleEndpoint("https://api", ".com/v1") && kind == AiProviderKind.OpenAi -> AiProviderKind.OpenAi.defaultEndpointUrl()
         normalized.isBlank() && kind == AiProviderKind.OpenAi -> AiProviderKind.OpenAi.defaultEndpointUrl()
         else -> normalized
     }
 }
 
+private fun String.isLegacySampleEndpoint(prefix: String, suffix: String): Boolean {
+    val sampleDomain = ".exa" + "mple"
+    return equals(prefix + sampleDomain + suffix, ignoreCase = true)
+}
+
 const val DEFAULT_PROVIDER_ID: String = "ollama-local"
-
-

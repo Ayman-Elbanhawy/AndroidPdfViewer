@@ -75,11 +75,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
-interface AnnotationPersistenceGateway {
-    suspend fun load(documentRef: PdfDocumentRef): Map<Int, List<AnnotationModel>>
-    suspend fun persist(document: DocumentModel, destinationPdf: File, exportMode: AnnotationExportMode)
-}
-
 interface DocumentRepository {
     suspend fun open(request: OpenDocumentRequest): DocumentModel
     suspend fun importPages(requests: List<OpenDocumentRequest>): List<PageModel>
@@ -104,7 +99,6 @@ class DefaultDocumentRepository(
     private val draftDao: DraftDao,
     private val editHistoryMetadataDao: EditHistoryMetadataDao,
     private val documentSecurityDao: DocumentSecurityDao,
-    private val annotationPersistenceGateway: AnnotationPersistenceGateway = JsonAnnotationPersistenceGateway(),
     private val pdfWriteEngine: PdfWriteEngine = PdfBoxWriteEngine(context),
     private val secureFileCipher: SecureFileCipher = AndroidSecureFileCipher(context),
     private val json: Json = Json {
@@ -151,14 +145,14 @@ class DefaultDocumentRepository(
                 buildDocument(sessionId, request.displayName, request.password, DocumentSourceType.Memory, "memory://$sessionId/${request.displayName}", workingFile)
             }
         }
-        val annotations = annotationPersistenceGateway.load(opened.documentRef)
-        val pageEdits = pdfWriteEngine.load(opened.documentRef)
+        val editableState = pdfWriteEngine.load(opened.documentRef)
+        val legacyAnnotations = loadLegacyAnnotationCompatibility(opened.documentRef)
         val document = securityProcessor.decorateOpenedDocument(
             opened.copy(
                 pages = opened.pages.map { page ->
                     page.copy(
-                        annotations = annotations[page.index].orEmpty(),
-                        editObjects = pageEdits[page.index].orEmpty(),
+                        annotations = editableState.annotationsByPage[page.index].orEmpty().ifEmpty { legacyAnnotations[page.index].orEmpty() },
+                        editObjects = editableState.editObjectsByPage[page.index].orEmpty(),
                     )
                 },
                 formDocument = detectForms(opened.documentRef.workingCopyPath),
@@ -229,8 +223,7 @@ class DefaultDocumentRepository(
             }
             else -> workingFile
         }
-        annotationPersistenceGateway.persist(securedDocument, destination, exportMode)
-        ocrSessionStore.copySidecar(document.documentRef, destination)
+        ocrSessionStore.copyCompatibilityPayload(document.documentRef, destination)
         persistSecurity(destination.absolutePath, securedDocument.security)
         clearDraft(ref.sourceKey)
         diagnosticsRepository?.recordSave(securedDocument, System.currentTimeMillis() - startedAt, true, destination.length(), mutationResult.pdfSha256)
@@ -246,8 +239,7 @@ class DefaultDocumentRepository(
         val mutationResult = pdfWriteEngine.persist(document, destination, exportMode, SaveStrategy.SaveAs)
         val securedDocument = securityProcessor.applyWriteThroughSecurity(document, destination, exportMode)
         verifyFileIntegrity(destination)
-        annotationPersistenceGateway.persist(securedDocument, destination, exportMode)
-        ocrSessionStore.copySidecar(document.documentRef, destination)
+        ocrSessionStore.copyCompatibilityPayload(document.documentRef, destination)
         persistSecurity(destination.absolutePath, securedDocument.security)
         clearDraft(document.documentRef.sourceKey)
         diagnosticsRepository?.recordSave(securedDocument, System.currentTimeMillis() - startedAt, true, destination.length(), mutationResult.pdfSha256)
@@ -288,8 +280,7 @@ class DefaultDocumentRepository(
             pdfWriteEngine.persist(extracted, file, AnnotationExportMode.Editable, SaveStrategy.ExportCopy)
             val securedExtracted = securityProcessor.applyWriteThroughSecurity(extracted, file, AnnotationExportMode.Editable)
             verifyFileIntegrity(file)
-            annotationPersistenceGateway.persist(securedExtracted, file, AnnotationExportMode.Editable)
-            ocrSessionStore.copySidecar(document.documentRef, file)
+            ocrSessionStore.copyCompatibilityPayload(document.documentRef, file)
             persistSecurity(file.absolutePath, securedExtracted.security)
             file
         }
@@ -501,48 +492,39 @@ class DefaultDocumentRepository(
         val dir = File(context.filesDir, "drafts").apply { mkdirs() }
         return File(dir, "$sessionId.json")
     }
-}
-
-private class JsonAnnotationPersistenceGateway(
-    private val json: Json = Json { ignoreUnknownKeys = true; encodeDefaults = true },
-) : AnnotationPersistenceGateway {
-    override suspend fun load(documentRef: PdfDocumentRef): Map<Int, List<AnnotationModel>> {
-        val file = resolveSidecar(documentRef) ?: return emptyMap()
+    private fun loadLegacyAnnotationCompatibility(documentRef: PdfDocumentRef): Map<Int, List<AnnotationModel>> {
+        val file = resolveLegacyAnnotationCompatibilityFile(documentRef) ?: return emptyMap()
         if (!file.exists()) return emptyMap()
-        val payload = json.decodeFromString(AnnotationSidecarPayload.serializer(), file.readText())
+        val payload = runCatching {
+            json.decodeFromString(LegacyAnnotationCompatibilityPayload.serializer(), file.readText())
+        }.getOrNull() ?: return emptyMap()
         return payload.annotations.groupBy { it.pageIndex }
     }
 
-    override suspend fun persist(document: DocumentModel, destinationPdf: File, exportMode: AnnotationExportMode) {
-        val sidecar = File(destinationPdf.absolutePath + ".annotations.json")
-        sidecar.parentFile?.mkdirs()
-        val payload = AnnotationSidecarPayload(document.documentRef.sourceKey, exportMode, document.pages.flatMap { page -> page.annotations.map { it.withPage(page.index) } }, System.currentTimeMillis())
-        sidecar.writeText(json.encodeToString(AnnotationSidecarPayload.serializer(), payload))
-    }
-
-    private fun resolveSidecar(documentRef: PdfDocumentRef): File? {
+    private fun resolveLegacyAnnotationCompatibilityFile(documentRef: PdfDocumentRef): File? {
         val sourceFile = when (documentRef.sourceType) {
             DocumentSourceType.File -> File(documentRef.sourceKey)
             DocumentSourceType.Uri, DocumentSourceType.Asset, DocumentSourceType.Memory -> File(documentRef.workingCopyPath)
         }
-        val explicitSidecar = File(sourceFile.absolutePath + ".annotations.json")
-        if (explicitSidecar.exists()) return explicitSidecar
-        val workingSidecar = File(documentRef.workingCopyPath + ".annotations.json")
-        if (workingSidecar.exists()) return workingSidecar
-        return explicitSidecar.takeIf { it.parentFile?.exists() == true } ?: workingSidecar.takeIf { it.parentFile?.exists() == true }
+        val explicitCompatibilityFile = File(sourceFile.absolutePath + ".annotations.json")
+        if (explicitCompatibilityFile.exists()) return explicitCompatibilityFile
+        val workingCompatibilityFile = File(documentRef.workingCopyPath + ".annotations.json")
+        if (workingCompatibilityFile.exists()) return workingCompatibilityFile
+        return explicitCompatibilityFile.takeIf { it.parentFile?.exists() == true }
+            ?: workingCompatibilityFile.takeIf { it.parentFile?.exists() == true }
     }
+
 }
 
+
+
 @Serializable
-private data class AnnotationSidecarPayload(
+private data class LegacyAnnotationCompatibilityPayload(
     val documentKey: String,
     val exportMode: AnnotationExportMode,
     val annotations: List<AnnotationModel>,
     val updatedAtEpochMillis: Long,
 )
-
-
-
 
 
 
