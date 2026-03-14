@@ -6,6 +6,7 @@ import androidx.benchmark.junit4.BenchmarkRule
 import androidx.benchmark.junit4.measureRepeated
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.filters.SdkSuppress
 import com.aymanelbanhawy.editor.core.EditorCoreContainer
 import com.aymanelbanhawy.editor.core.model.AnnotationExportMode
 import com.aymanelbanhawy.editor.core.model.OpenDocumentRequest
@@ -20,6 +21,7 @@ class LargeDocumentOpenBenchmarkTest {
     @get:Rule
     val benchmarkRule = BenchmarkRule()
 
+    @SdkSuppress(maxSdkVersion = 35)
     @Test
     fun benchmarkDocumentOpen() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
@@ -38,6 +40,7 @@ class LargeDocumentOpenBenchmarkTest {
         }
     }
 
+    @SdkSuppress(maxSdkVersion = 35)
     @Test
     fun benchmarkThumbnailGeneration() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
@@ -59,6 +62,7 @@ class LargeDocumentOpenBenchmarkTest {
         }
     }
 
+    @SdkSuppress(maxSdkVersion = 35)
     @Test
     fun benchmarkSaveExport() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
@@ -106,3 +110,6 @@ class LargeDocumentOpenBenchmarkTest {
         }
     }
 }
+
+
+

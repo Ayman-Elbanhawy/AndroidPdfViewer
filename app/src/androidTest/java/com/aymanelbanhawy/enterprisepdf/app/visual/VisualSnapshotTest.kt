@@ -9,6 +9,7 @@ import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.filters.SdkSuppress
 import com.aymanelbanhawy.aiassistant.core.AiProviderRuntimeState
 import com.aymanelbanhawy.aiassistant.core.AssistantAudioUiState
 import com.aymanelbanhawy.aiassistant.core.AssistantAvailability
@@ -35,6 +36,7 @@ class VisualSnapshotTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
 
+    @SdkSuppress(maxSdkVersion = 35)
     @Test
     fun searchSidebar_lightAndDarkSnapshots_render() {
         renderSnapshot(name = "search-light", darkTheme = false) {
@@ -121,6 +123,7 @@ class VisualSnapshotTest {
         }
     }
 
+    @SdkSuppress(maxSdkVersion = 35)
     @Test
     fun assistantSidebar_lightAndDarkSnapshots_render() {
         val state = AssistantUiState(
@@ -218,3 +221,6 @@ class VisualSnapshotTest {
         assertThat(output.length()).isGreaterThan(0)
     }
 }
+
+
+

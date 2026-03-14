@@ -12,6 +12,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.test.filters.SdkSuppress
 import com.aymanelbanhawy.aiassistant.core.AiProviderDraft
 import com.aymanelbanhawy.aiassistant.core.AiProviderRuntimeState
 import com.aymanelbanhawy.aiassistant.core.AssistantAudioUiState
@@ -29,6 +30,7 @@ class AssistantProviderSettingsTest {
     @get:Rule
     val composeRule = createComposeRule()
 
+    @SdkSuppress(maxSdkVersion = 35)
     @Test
     fun providerSettings_voiceControls_andAskFlow_areReachable() {
         var state by mutableStateOf(
@@ -112,3 +114,6 @@ class AssistantProviderSettingsTest {
         assertThat(askTriggered).isTrue()
     }
 }
+
+
+

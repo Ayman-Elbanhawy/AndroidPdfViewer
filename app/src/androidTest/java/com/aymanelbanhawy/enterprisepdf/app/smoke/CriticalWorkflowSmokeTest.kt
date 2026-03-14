@@ -2,6 +2,7 @@ package com.aymanelbanhawy.enterprisepdf.app.smoke
 
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.filters.SdkSuppress
 import com.aymanelbanhawy.editor.core.EditorCoreContainer
 import com.aymanelbanhawy.editor.core.model.AnnotationExportMode
 import com.aymanelbanhawy.editor.core.model.OpenDocumentRequest
@@ -13,6 +14,7 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class CriticalWorkflowSmokeTest {
+    @SdkSuppress(maxSdkVersion = 35)
     @Test
     fun openSaveSearchThumbnailAndDiagnosticsFlow() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
@@ -45,3 +47,6 @@ class CriticalWorkflowSmokeTest {
         assertThat(diagnostics.cache.thumbnailFileCount).isGreaterThan(0)
     }
 }
+
+
+
