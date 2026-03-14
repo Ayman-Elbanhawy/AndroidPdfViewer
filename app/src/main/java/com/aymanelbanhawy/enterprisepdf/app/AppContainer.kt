@@ -2,6 +2,8 @@ package com.aymanelbanhawy.enterprisepdf.app
 
 import android.content.Context
 import com.aymanelbanhawy.aiassistant.core.AiAssistantRepository
+import com.aymanelbanhawy.aiassistant.core.AndroidSpeechCaptureEngine
+import com.aymanelbanhawy.aiassistant.core.AndroidTextToSpeechReadAloudEngine
 import com.aymanelbanhawy.aiassistant.core.DefaultAiAssistantRepository
 import com.aymanelbanhawy.editor.core.EditorCoreContainer
 import com.aymanelbanhawy.editor.core.collaboration.CollaborationRepository
@@ -19,6 +21,7 @@ import com.aymanelbanhawy.editor.core.security.SecurityRepository
 import com.aymanelbanhawy.editor.core.session.EditorSession
 import com.aymanelbanhawy.editor.core.work.SearchIndexScheduler
 import com.aymanelbanhawy.editor.core.workflow.WorkflowRepository
+import com.aymanelbanhawy.enterprisepdf.app.audio.VoiceCommentRuntime
 import com.aymanelbanhawy.enterprisepdf.app.migration.AppMigrationCoordinator
 import com.aymanelbanhawy.enterprisepdf.app.migration.DefaultAppMigrationCoordinator
 import com.aymanelbanhawy.enterprisepdf.app.release.AppRuntimeConfig
@@ -45,6 +48,10 @@ class AppContainer(
     val migrationCoordinator: AppMigrationCoordinator by lazy {
         DefaultAppMigrationCoordinator(appContext, editorCoreContainer)
     }
+
+    val speechCaptureEngine by lazy { AndroidSpeechCaptureEngine(appContext) }
+    val readAloudEngine by lazy { AndroidTextToSpeechReadAloudEngine(appContext) }
+    val voiceCommentRuntime by lazy { VoiceCommentRuntime(appContext) }
     val aiAssistantRepository: AiAssistantRepository by lazy {
         runBlocking {
             DefaultAiAssistantRepository.create(
@@ -64,4 +71,3 @@ class AppContainer(
         return OpenDocumentRequest.FromAsset(assetName = "sample.pdf", displayName = "sample.pdf")
     }
 }
-

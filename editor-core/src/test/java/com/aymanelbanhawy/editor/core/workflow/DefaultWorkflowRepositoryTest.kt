@@ -2,8 +2,6 @@ package com.aymanelbanhawy.editor.core.workflow
 
 import android.content.Context
 import android.content.ContextWrapper
-import android.graphics.Bitmap
-import android.graphics.Color
 import com.aymanelbanhawy.editor.core.data.ActivityEventDao
 import com.aymanelbanhawy.editor.core.data.ActivityEventEntity
 import com.aymanelbanhawy.editor.core.data.CompareReportDao
@@ -34,10 +32,7 @@ import com.aymanelbanhawy.editor.core.model.OpenDocumentRequest
 import com.aymanelbanhawy.editor.core.model.PageContentType
 import com.aymanelbanhawy.editor.core.model.PageModel
 import com.aymanelbanhawy.editor.core.model.PdfDocumentRef
-import com.aymanelbanhawy.editor.core.model.SelectionModel
-import com.aymanelbanhawy.editor.core.model.UndoRedoState
 import com.aymanelbanhawy.editor.core.ocr.OcrSessionStore
-import com.aymanelbanhawy.editor.core.repository.DefaultDocumentRepository
 import com.aymanelbanhawy.editor.core.repository.DocumentRepository
 import com.aymanelbanhawy.editor.core.repository.DraftRestoreResult
 import com.aymanelbanhawy.editor.core.scan.ScanImportOptions
@@ -115,6 +110,54 @@ class DefaultWorkflowRepositoryTest {
     }
 
     @Test
+    fun exportDocumentAsWord_andImportSourceAsPdf_roundTripDocx() = runBlocking {
+        val repository = repository()
+        val pdf = createPdf("word-export-${System.nanoTime()}.pdf", "alpha beta gamma")
+        val document = document(pdf)
+        val docx = File(context.cacheDir, "export.docx")
+
+        val exportResult = repository.exportDocumentAsWord(document, docx)
+        val imported = repository.importSourceAsPdf(File(exportResult.artifacts.first().path), "roundtrip.pdf")
+        val importedRequest = imported.request as OpenDocumentRequest.FromFile
+
+        assertThat(File(exportResult.artifacts.first().path).exists()).isTrue()
+        assertThat(File(importedRequest.absolutePath).exists()).isTrue()
+        PDDocument.load(File(importedRequest.absolutePath)).use { importedDocument ->
+            assertThat(importedDocument.numberOfPages).isAtLeast(1)
+        }
+    }
+
+    @Test
+    fun mergeSourcesAsPdf_combinesPdfAndDocxSources() = runBlocking {
+        val repository = repository()
+        val pdf = createPdf("merge-source-${System.nanoTime()}.pdf", "existing pdf page")
+        val docx = createDocx("merge-source-${System.nanoTime()}.docx", listOf("docx page one", "docx page two"))
+
+        val merged = repository.mergeSourcesAsPdf(listOf(pdf, docx), "merged-sources.pdf")
+        val mergedRequest = merged.request as OpenDocumentRequest.FromFile
+
+        assertThat(mergedRequest.displayNameOverride).contains("merged-sources")
+        assertThat(File(mergedRequest.absolutePath).exists()).isTrue()
+        PDDocument.load(File(mergedRequest.absolutePath)).use { mergedDocument ->
+            assertThat(mergedDocument.numberOfPages).isAtLeast(2)
+        }
+    }
+
+    @Test
+    fun exportCompareReport_writesNavigableMarkdown() = runBlocking {
+        val repository = repository()
+        val baseline = createPdf("baseline-${System.nanoTime()}.pdf", "alpha")
+        val compared = createPdf("compared-${System.nanoTime()}.pdf", "alpha beta")
+        val report = repository.compareDocuments(document(baseline), ref(compared))
+        val destination = File(context.cacheDir, "compare-report.md")
+
+        val artifact = repository.exportCompareReport(report.id, destination)
+
+        assertThat(File(artifact.path).readText()).contains("Compare Report")
+        assertThat(File(artifact.path).readText()).contains("Page 1")
+    }
+
+    @Test
     fun createFormRequest_roundTripsSubmissionLifecycle() = runBlocking {
         val repository = repository()
         val document = document(createPdf("form-${System.nanoTime()}.pdf", "form"))
@@ -184,6 +227,7 @@ class DefaultWorkflowRepositoryTest {
             ocrSessionStore = OcrSessionStore(json, null),
             documentRepository = documentRepository,
             scanImportService = scanImportService,
+            conversionRuntime = DocumentConversionRuntime(listOf(OpenXmlDocxDocumentConversionProvider(context))),
             json = json,
         )
     }
@@ -236,6 +280,15 @@ class DefaultWorkflowRepositoryTest {
         workingCopyPath = file.absolutePath,
     )
 
+    private fun createDocx(name: String, paragraphs: List<String>): File {
+        val file = File(context.filesDir, name)
+        OpenXmlDocxDocumentConversionProvider.writeMinimalDocx(
+            destination = file,
+            paragraphs = paragraphs.map { DocxParagraph(it) },
+        )
+        return file
+    }
+
     private fun createPdf(name: String, text: String): File {
         val file = File(context.filesDir, name)
         PDDocument().use { document ->
@@ -258,6 +311,7 @@ private class RecordingCompareReportDao : CompareReportDao {
     private val items = linkedMapOf<String, CompareReportEntity>()
     override suspend fun upsert(entity: CompareReportEntity) { items[entity.id] = entity }
     override suspend fun forDocument(documentKey: String): List<CompareReportEntity> = items.values.filter { it.documentKey == documentKey }.sortedByDescending { it.createdAtEpochMillis }
+    override suspend fun byId(reportId: String): CompareReportEntity? = items[reportId]
 }
 
 private class RecordingFormTemplateDao : FormTemplateDao {
@@ -325,4 +379,6 @@ private class RecordingScanImportService : ScanImportService {
         return OpenDocumentRequest.FromFile(destination.absolutePath, displayNameOverride = destination.name)
     }
 }
+
+
 

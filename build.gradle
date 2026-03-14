@@ -14,3 +14,19 @@ subprojects {
         }
     }
 }
+
+
+tasks.register('releaseReadinessEvidence') {
+    group = 'verification'
+    description = 'Runs repo-wide release readiness evidence gates for grep checks, builds, tests, and reports.'
+    dependsOn(
+        ':app:validateReleaseReadiness',
+        ':editor-core:test',
+        ':ai-assistant:test',
+        ':app:lintProdDebug',
+        ':app:assembleProdDebug',
+        ':app:testProdDebugUnitTest',
+        ':app:assembleProdDebugAndroidTest'
+    )
+}
+

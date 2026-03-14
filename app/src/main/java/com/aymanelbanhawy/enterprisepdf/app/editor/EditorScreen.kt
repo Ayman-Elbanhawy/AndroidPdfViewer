@@ -106,10 +106,14 @@ data class EditorWorkflowExportActions(
     val onOpenCompareMarker: (com.aymanelbanhawy.editor.core.workflow.CompareMarkerModel) -> Unit,
     val onExportText: () -> Unit,
     val onExportMarkdown: () -> Unit,
+    val onExportWord: () -> Unit,
     val onExportImages: () -> Unit,
-    val onOptimizeLight: () -> Unit,
+    val onImportSourceAsPdf: () -> Unit,
+    val onMergeSources: () -> Unit,
+    val onOptimizeHighQuality: () -> Unit,
     val onOptimizeBalanced: () -> Unit,
-    val onOptimizeStrong: () -> Unit,
+    val onOptimizeSmallSize: () -> Unit,
+    val onOptimizeArchivalSafe: () -> Unit,
 )
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -180,6 +184,13 @@ fun EditorScreen(
     onTestAssistantConnection: () -> Unit,
     onCancelAssistantRequest: () -> Unit,
     onOpenAssistantCitation: (Int) -> Unit,
+    onStartVoicePromptCapture: () -> Unit,
+    onStopVoicePromptCapture: () -> Unit,
+    onCancelVoicePromptCapture: () -> Unit,
+    onReadCurrentPageAloud: () -> Unit,
+    onReadSelectionAloud: () -> Unit,
+    onStopReadAloud: () -> Unit,
+    onAssistantAudioEnabledChanged: (Boolean) -> Unit,
     onNextSearchHit: () -> Unit,
     onPreviousSearchHit: () -> Unit,
     onSelectSearchHit: (Int) -> Unit,
@@ -210,6 +221,14 @@ fun EditorScreen(
     onAddReviewThread: (String, String) -> Unit,
     onAddReviewReply: (String, String) -> Unit,
     onToggleThreadResolved: (String, Boolean) -> Unit,
+    onStartThreadVoiceComment: () -> Unit,
+    onStopThreadVoiceComment: () -> Unit,
+    onCancelThreadVoiceComment: () -> Unit,
+    onStartReplyVoiceComment: (String) -> Unit,
+    onStopReplyVoiceComment: (String) -> Unit,
+    onCancelReplyVoiceComment: (String) -> Unit,
+    onPlayVoiceComment: (String) -> Unit,
+    onStopVoiceCommentPlayback: () -> Unit,
     onConfigureAppLock: (Boolean, String, Boolean, Int) -> Unit,
     onUnlockWithPin: (String) -> Unit,
     onUnlockWithBiometric: () -> Unit,
@@ -340,10 +359,14 @@ fun EditorScreen(
                         DropdownMenuItem(text = { Text("Images To Searchable PDF") }, onClick = { overflowExpanded = false; onShowScanImport() })
                         DropdownMenuItem(text = { Text("Export Text") }, onClick = { overflowExpanded = false; workflowExportActions.onExportText() })
                         DropdownMenuItem(text = { Text("Export Markdown") }, onClick = { overflowExpanded = false; workflowExportActions.onExportMarkdown() })
+                        DropdownMenuItem(text = { Text("Export Word") }, onClick = { overflowExpanded = false; workflowExportActions.onExportWord() })
                         DropdownMenuItem(text = { Text("Export Page Images") }, onClick = { overflowExpanded = false; workflowExportActions.onExportImages() })
-                        DropdownMenuItem(text = { Text("Optimize Light") }, onClick = { overflowExpanded = false; workflowExportActions.onOptimizeLight() })
+                        DropdownMenuItem(text = { Text("Import Document As PDF") }, onClick = { overflowExpanded = false; workflowExportActions.onImportSourceAsPdf() })
+                        DropdownMenuItem(text = { Text("Merge Sources To PDF") }, onClick = { overflowExpanded = false; workflowExportActions.onMergeSources() })
+                        DropdownMenuItem(text = { Text("Optimize High Quality") }, onClick = { overflowExpanded = false; workflowExportActions.onOptimizeHighQuality() })
                         DropdownMenuItem(text = { Text("Optimize Balanced") }, onClick = { overflowExpanded = false; workflowExportActions.onOptimizeBalanced() })
-                        DropdownMenuItem(text = { Text("Optimize Strong") }, onClick = { overflowExpanded = false; workflowExportActions.onOptimizeStrong() })
+                        DropdownMenuItem(text = { Text("Optimize Small Size") }, onClick = { overflowExpanded = false; workflowExportActions.onOptimizeSmallSize() })
+                        DropdownMenuItem(text = { Text("Optimize Archival Safe") }, onClick = { overflowExpanded = false; workflowExportActions.onOptimizeArchivalSafe() })
                         DropdownMenuItem(text = { Text(if (state.annotationSidebarVisible) "Hide Sidebar" else "Show Sidebar") }, onClick = { overflowExpanded = false; onSidebarToggle() })
                     }
                 },
@@ -486,6 +509,13 @@ fun EditorScreen(
                         onTestConnection = onTestAssistantConnection,
                         onCancelRequest = onCancelAssistantRequest,
                         onOpenCitation = onOpenAssistantCitation,
+                        onStartVoicePromptCapture = onStartVoicePromptCapture,
+                        onStopVoicePromptCapture = onStopVoicePromptCapture,
+                        onCancelVoicePromptCapture = onCancelVoicePromptCapture,
+                        onReadCurrentPageAloud = onReadCurrentPageAloud,
+                        onReadSelectionAloud = onReadSelectionAloud,
+                        onStopReadAloud = onStopReadAloud,
+                        onAssistantAudioEnabledChanged = onAssistantAudioEnabledChanged,
                     )
                 }
                 state.activePanel == WorkspacePanel.Review && state.annotationSidebarVisible -> {
@@ -499,6 +529,9 @@ fun EditorScreen(
                         workflowRequests = state.workflowState.requests,
                         filter = state.reviewFilter,
                         pendingSyncCount = state.pendingSyncCount,
+                        pendingThreadVoiceComment = state.pendingThreadVoiceComment,
+                        pendingReplyVoiceComments = state.pendingReplyVoiceComments,
+                        activeVoiceCommentPlaybackId = state.activeVoiceCommentPlaybackId,
                         onCreateShareLink = onCreateShareLink,
                         onCreateSnapshot = onCreateSnapshot,
                         onSyncNow = onSyncNow,
@@ -510,6 +543,14 @@ fun EditorScreen(
                         onAddThread = onAddReviewThread,
                         onAddReply = onAddReviewReply,
                         onToggleResolved = onToggleThreadResolved,
+                        onStartThreadVoiceComment = onStartThreadVoiceComment,
+                        onStopThreadVoiceComment = onStopThreadVoiceComment,
+                        onCancelThreadVoiceComment = onCancelThreadVoiceComment,
+                        onStartReplyVoiceComment = onStartReplyVoiceComment,
+                        onStopReplyVoiceComment = onStopReplyVoiceComment,
+                        onCancelReplyVoiceComment = onCancelReplyVoiceComment,
+                        onPlayVoiceComment = onPlayVoiceComment,
+                        onStopVoiceCommentPlayback = onStopVoiceCommentPlayback,
                         onOpenCompareMarker = workflowExportActions.onOpenCompareMarker,
                     )
                 }
@@ -751,6 +792,13 @@ private fun EditorAction.tooltipLabel(): String = when (this) {
     EditorAction.Settings -> "Settings"
     EditorAction.Diagnostics -> "Diagnostics"
 }
+
+
+
+
+
+
+
 
 
 

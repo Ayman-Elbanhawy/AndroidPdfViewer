@@ -10,16 +10,10 @@ import com.aymanelbanhawy.editor.core.ocr.OcrJobStatus
 import com.aymanelbanhawy.editor.core.runtime.RuntimeDiagnosticsRepository
 import com.aymanelbanhawy.editor.core.runtime.RuntimeEventCategory
 import com.aymanelbanhawy.editor.core.runtime.RuntimeLogLevel
-import com.aymanelbanhawy.editor.core.write.MutationIntegrityStatus
-import com.aymanelbanhawy.editor.core.write.LegacyPageEditPayload
-import com.aymanelbanhawy.editor.core.write.PdfMutationSessionPayload
 import java.io.File
-import java.security.MessageDigest
-import java.util.UUID
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 
 interface CoreMigrationRepository {
@@ -37,6 +31,7 @@ class DefaultCoreMigrationRepository(
     private val syncQueueDao: SyncQueueDao,
     private val diagnosticsRepository: RuntimeDiagnosticsRepository,
     private val json: Json,
+    private val legacyEditCompatibilityBridge: LegacyEditCompatibilityBridge = FileLegacyEditCompatibilityBridge(json),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : CoreMigrationRepository {
 
@@ -172,30 +167,15 @@ class DefaultCoreMigrationRepository(
         }
         var migrated = 0
         var repaired = 0
-        workingDir.walkTopDown().filter { it.isFile && it.name.endsWith(LEGACY_PAGE_EDIT_SUFFIX) }.forEach { legacyFile ->
-            val sessionFile = File(legacyFile.absolutePath.removeSuffix(LEGACY_PAGE_EDIT_SUFFIX) + ".mutations.json")
-            if (sessionFile.exists()) return@forEach
-            val payload = runCatching { json.decodeFromString(LegacyPageEditPayload.serializer(), legacyFile.readText()) }.getOrNull()
-            if (payload == null) {
-                legacyFile.copyTo(File(legacyFile.absolutePath + ".migration-corrupt"), overwrite = true)
-                repaired += 1
-                return@forEach
+        workingDir.walkTopDown().filter { it.isFile && it.name.endsWith(FileLegacyEditCompatibilityBridge.legacySuffix()) }.forEach { legacyFile ->
+            val upgraded = runCatching { legacyEditCompatibilityBridge.migrateLegacyArtifact(legacyFile) }.getOrNull()
+            when {
+                upgraded != null -> migrated += 1
+                legacyFile.exists() -> {
+                    legacyFile.copyTo(File(legacyFile.absolutePath + ".migration-corrupt"), overwrite = true)
+                    repaired += 1
+                }
             }
-            val editJson = json.encodeToString(ListSerializer(com.aymanelbanhawy.editor.core.model.PageEditModel.serializer()), payload.editObjects)
-            val annotationJson = json.encodeToString(ListSerializer(com.aymanelbanhawy.editor.core.model.AnnotationModel.serializer()), emptyList())
-            val sessionPayload = PdfMutationSessionPayload(
-                schemaVersion = CURRENT_MUTATION_SCHEMA_VERSION,
-                documentKey = payload.documentKey,
-                exportMode = com.aymanelbanhawy.editor.core.model.AnnotationExportMode.Editable,
-                editObjects = payload.editObjects,
-                transactionId = UUID.randomUUID().toString(),
-                updatedAtEpochMillis = payload.updatedAtEpochMillis,
-                legacyCompatibilityMigrated = true,
-                integrity = MutationIntegrityStatus.LegacyMigrated,
-                checksumSha256 = sha256("$editJson|$annotationJson"),
-            )
-            sessionFile.writeText(json.encodeToString(PdfMutationSessionPayload.serializer(), sessionPayload))
-            migrated += 1
         }
         return MigrationStepReport(
             id = "pageedits",
@@ -334,21 +314,8 @@ class DefaultCoreMigrationRepository(
         source.copyRecursively(destination, overwrite = true)
     }
 
-    private fun sha256(value: String): String {
-        val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray())
-        return digest.joinToString(separator = "") { "%02x".format(it) }
-    }
-
     companion object {
         private const val ENGINE_VERSION = 1
-        private const val CURRENT_MUTATION_SCHEMA_VERSION = 3
         private const val STALE_OPERATION_AGE_MILLIS = 15L * 60L * 1000L
-        private const val LEGACY_PAGE_EDIT_SUFFIX = ".page" + "edits.json"
     }
 }
-
-
-
-
-
-

@@ -429,6 +429,7 @@ class DefaultAiAssistantRepository(
         AssistantTaskType.SummarizeWorkspace -> "Workspace Summary"
         AssistantTaskType.CrossDocumentSearch -> "Cross-Document Search"
         AssistantTaskType.CompareAndSummarize -> "Compare And Summarize"
+        AssistantTaskType.SuggestNextActions -> "Suggested Next Actions"
     }
     private fun AiProviderRuntimeState.currentProfile(): AiProviderProfile? = profiles.firstOrNull { it.id == selectedProviderId } ?: profiles.firstOrNull()
 
@@ -500,5 +501,7 @@ object AssistantResultFormatter {
 
     fun citationAnchor(documentKey: String, documentTitle: String, pageIndex: Int, bounds: com.aymanelbanhawy.editor.core.model.NormalizedRect, quote: String): CitationAnchor = CitationAnchor(documentKey, documentTitle, pageIndex, bounds, quote)
 }
+
+
 
 

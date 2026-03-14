@@ -5,8 +5,20 @@ import android.content.ClipboardManager
 import android.graphics.BitmapFactory
 import android.net.Uri
 import com.aymanelbanhawy.aiassistant.core.AiProviderDraft
+import com.aymanelbanhawy.aiassistant.core.AssistantAudioUiState
 import com.aymanelbanhawy.aiassistant.core.AssistantPrivacyMode
 import com.aymanelbanhawy.aiassistant.core.AssistantUiState
+import com.aymanelbanhawy.aiassistant.core.ReadAloudProgress
+import com.aymanelbanhawy.aiassistant.core.ReadAloudRequest
+import com.aymanelbanhawy.aiassistant.core.ReadAloudStatus
+import com.aymanelbanhawy.aiassistant.core.SpeechCaptureEvent
+import com.aymanelbanhawy.aiassistant.core.VoiceCaptureStatus
+import com.aymanelbanhawy.aiassistant.core.readAloudStopped
+import com.aymanelbanhawy.aiassistant.core.reduceReadAloudEvent
+import com.aymanelbanhawy.aiassistant.core.voiceCaptureCancelled
+import com.aymanelbanhawy.aiassistant.core.voiceCaptureStopped
+import com.aymanelbanhawy.aiassistant.core.reduceVoiceCaptureEvent
+import com.aymanelbanhawy.aiassistant.core.beginVoiceCapture
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -18,6 +30,7 @@ import com.aymanelbanhawy.editor.core.collaboration.ReviewThreadState
 import com.aymanelbanhawy.editor.core.collaboration.ShareLinkModel
 import com.aymanelbanhawy.editor.core.collaboration.SharePermission
 import com.aymanelbanhawy.editor.core.collaboration.VersionSnapshotModel
+import com.aymanelbanhawy.editor.core.collaboration.VoiceCommentAttachmentModel
 import com.aymanelbanhawy.editor.core.command.AddAnnotationCommand
 import com.aymanelbanhawy.editor.core.command.AddPageEditCommand
 import com.aymanelbanhawy.editor.core.command.BatchRotatePagesCommand
@@ -125,6 +138,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.UUID
@@ -192,6 +206,9 @@ data class EditorUiState(
     val connectorExportDialog: ConnectorExportUiState? = null,
     val runtimeDiagnostics: RuntimeDiagnosticsSnapshot = RuntimeDiagnosticsSnapshot(),
     val workflowState: WorkflowStateModel = WorkflowStateModel(),
+    val pendingThreadVoiceComment: VoiceCommentAttachmentModel? = null,
+    val pendingReplyVoiceComments: Map<String, VoiceCommentAttachmentModel> = emptyMap(),
+    val activeVoiceCommentPlaybackId: String? = null,
 ) {
     val selectedAnnotation: AnnotationModel?
         get() = session.document?.pages?.flatMap { it.annotations }?.firstOrNull { it.id in session.selection.selectedAnnotationIds }
@@ -260,9 +277,15 @@ class EditorViewModel(
     private val runtimeDiagnostics = MutableStateFlow(RuntimeDiagnosticsSnapshot())
     private val workflowState = MutableStateFlow(WorkflowStateModel())
     private val assistantState = MutableStateFlow(AssistantUiState())
+    private val assistantAudioState = MutableStateFlow(AssistantAudioUiState())
+    private val pendingThreadVoiceComment = MutableStateFlow<VoiceCommentAttachmentModel?>(null)
+    private val pendingReplyVoiceComments = MutableStateFlow<Map<String, VoiceCommentAttachmentModel>>(emptyMap())
+    private val activeVoiceCommentPlaybackId = MutableStateFlow<String?>(null)
     private val localEvents = MutableSharedFlow<EditorSessionEvent>(extraBufferCapacity = 16)
     private val indexingPolicy = IndexingPolicy()
     private var ocrObservationJob: Job? = null
+    private var voiceCaptureJob: Job? = null
+    private var readAloudJob: Job? = null
 
     val uiState: StateFlow<EditorUiState> = combine(
         session.state,
@@ -280,6 +303,7 @@ class EditorViewModel(
         searchQuery,
         searchResults,
         assistantState,
+        assistantAudioState,
         recentSearches,
         outlineItems,
         selectedTextSelection,
@@ -304,6 +328,9 @@ class EditorViewModel(
         connectorExportDialog,
         runtimeDiagnostics,
         workflowState,
+        pendingThreadVoiceComment,
+        pendingReplyVoiceComments,
+        activeVoiceCommentPlaybackId,
     ) { values ->
         EditorUiState(
             session = values[0] as EditorSessionState,
@@ -320,31 +347,34 @@ class EditorViewModel(
             signingFieldName = values[11] as String?,
             searchQuery = values[12] as String,
             searchResults = values[13] as SearchResultSet,
-            assistantState = values[14] as AssistantUiState,
-            recentSearches = values[15] as List<String>,
-            outlineItems = values[16] as List<OutlineItem>,
-            selectedTextSelection = values[17] as TextSelectionPayload?,
-            isSearchIndexing = values[18] as Boolean,
-            scanImportVisible = values[19] as Boolean,
-            scanImportOptions = values[20] as ScanImportOptions,
-            shareLinks = values[21] as List<ShareLinkModel>,
-            reviewThreads = values[22] as List<ReviewThreadModel>,
-            versionSnapshots = values[23] as List<VersionSnapshotModel>,
-            activityEvents = values[24] as List<ActivityEventModel>,
-            reviewFilter = values[25] as ReviewFilterModel,
-            pendingSyncCount = values[26] as Int,
-            appLockSettings = values[27] as AppLockSettingsModel,
-            appLockState = values[28] as AppLockStateModel,
-            securityAuditEvents = values[29] as List<AuditTrailEventModel>,
-            enterpriseState = values[30] as EnterpriseAdminStateModel,
-            entitlements = values[31] as EntitlementStateModel,
-            telemetryEvents = values[32] as List<TelemetryEventModel>,
-            diagnosticsBundleCount = values[33] as Int,
-            connectorAccounts = values[34] as List<ConnectorAccountModel>,
-            connectorJobs = values[35] as List<ConnectorTransferJobModel>,
-            connectorExportDialog = values[36] as ConnectorExportUiState?,
-            runtimeDiagnostics = values[37] as RuntimeDiagnosticsSnapshot,
-            workflowState = values[38] as WorkflowStateModel,
+            assistantState = (values[14] as AssistantUiState).copy(audio = values[15] as AssistantAudioUiState),
+            recentSearches = values[16] as List<String>,
+            outlineItems = values[17] as List<OutlineItem>,
+            selectedTextSelection = values[18] as TextSelectionPayload?,
+            isSearchIndexing = values[19] as Boolean,
+            scanImportVisible = values[20] as Boolean,
+            scanImportOptions = values[21] as ScanImportOptions,
+            shareLinks = values[22] as List<ShareLinkModel>,
+            reviewThreads = values[23] as List<ReviewThreadModel>,
+            versionSnapshots = values[24] as List<VersionSnapshotModel>,
+            activityEvents = values[25] as List<ActivityEventModel>,
+            reviewFilter = values[26] as ReviewFilterModel,
+            pendingSyncCount = values[27] as Int,
+            appLockSettings = values[28] as AppLockSettingsModel,
+            appLockState = values[29] as AppLockStateModel,
+            securityAuditEvents = values[30] as List<AuditTrailEventModel>,
+            enterpriseState = values[31] as EnterpriseAdminStateModel,
+            entitlements = values[32] as EntitlementStateModel,
+            telemetryEvents = values[33] as List<TelemetryEventModel>,
+            diagnosticsBundleCount = values[34] as Int,
+            connectorAccounts = values[35] as List<ConnectorAccountModel>,
+            connectorJobs = values[36] as List<ConnectorTransferJobModel>,
+            connectorExportDialog = values[37] as ConnectorExportUiState?,
+            runtimeDiagnostics = values[38] as RuntimeDiagnosticsSnapshot,
+            workflowState = values[39] as WorkflowStateModel,
+            pendingThreadVoiceComment = values[40] as VoiceCommentAttachmentModel?,
+            pendingReplyVoiceComments = values[41] as Map<String, VoiceCommentAttachmentModel>,
+            activeVoiceCommentPlaybackId = values[42] as String?,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EditorUiState())
 
@@ -456,42 +486,42 @@ class EditorViewModel(
     fun updateAssistantPrompt(value: String) {
         viewModelScope.launch {
             appContainer.aiAssistantRepository.updatePrompt(value)
-            assistantState.value = appContainer.aiAssistantRepository.state.value
+            syncAssistantStateFromRepository()
         }
     }
 
     fun updateAssistantProviderDraft(draft: AiProviderDraft) {
         viewModelScope.launch {
             appContainer.aiAssistantRepository.updateProviderDraft(draft)
-            assistantState.value = appContainer.aiAssistantRepository.state.value
+            syncAssistantStateFromRepository()
         }
     }
 
     fun saveAssistantProvider() {
         viewModelScope.launch {
             appContainer.aiAssistantRepository.saveProviderDraft(entitlements.value, enterpriseState.value)
-            assistantState.value = appContainer.aiAssistantRepository.state.value
+            syncAssistantStateFromRepository()
         }
     }
 
     fun refreshAssistantProviders() {
         viewModelScope.launch {
             appContainer.aiAssistantRepository.refreshProviderCatalog(entitlements.value, enterpriseState.value)
-            assistantState.value = appContainer.aiAssistantRepository.state.value
+            syncAssistantStateFromRepository()
         }
     }
 
     fun testAssistantConnection() {
         viewModelScope.launch {
             appContainer.aiAssistantRepository.testProviderConnection(entitlements.value, enterpriseState.value)
-            assistantState.value = appContainer.aiAssistantRepository.state.value
+            syncAssistantStateFromRepository()
         }
     }
 
     fun cancelAssistantRequest() {
         viewModelScope.launch {
             appContainer.aiAssistantRepository.cancelActiveRequest()
-            assistantState.value = appContainer.aiAssistantRepository.state.value
+            syncAssistantStateFromRepository()
         }
     }
 
@@ -499,7 +529,7 @@ class EditorViewModel(
         val document = session.state.value.document ?: return
         viewModelScope.launch {
             appContainer.aiAssistantRepository.askPdf(document, assistantState.value.prompt.ifBlank { "What should I know about this PDF?" }, selectedTextSelection.value, entitlements.value, enterpriseState.value)
-            assistantState.value = appContainer.aiAssistantRepository.state.value
+            syncAssistantStateFromRepository()
         }
     }
 
@@ -507,7 +537,7 @@ class EditorViewModel(
         val document = session.state.value.document ?: return
         viewModelScope.launch {
             appContainer.aiAssistantRepository.summarizeDocument(document, entitlements.value, enterpriseState.value)
-            assistantState.value = appContainer.aiAssistantRepository.state.value
+            syncAssistantStateFromRepository()
         }
     }
 
@@ -515,7 +545,7 @@ class EditorViewModel(
         val document = session.state.value.document ?: return
         viewModelScope.launch {
             appContainer.aiAssistantRepository.summarizePage(document, session.state.value.selection.selectedPageIndex, entitlements.value, enterpriseState.value)
-            assistantState.value = appContainer.aiAssistantRepository.state.value
+            syncAssistantStateFromRepository()
         }
     }
 
@@ -523,7 +553,7 @@ class EditorViewModel(
         val document = session.state.value.document ?: return
         viewModelScope.launch {
             appContainer.aiAssistantRepository.extractActionItems(document, entitlements.value, enterpriseState.value)
-            assistantState.value = appContainer.aiAssistantRepository.state.value
+            syncAssistantStateFromRepository()
         }
     }
 
@@ -531,7 +561,7 @@ class EditorViewModel(
         val document = session.state.value.document ?: return
         viewModelScope.launch {
             appContainer.aiAssistantRepository.explainSelection(document, selectedTextSelection.value, entitlements.value, enterpriseState.value)
-            assistantState.value = appContainer.aiAssistantRepository.state.value
+            syncAssistantStateFromRepository()
         }
     }
 
@@ -539,28 +569,28 @@ class EditorViewModel(
         val document = session.state.value.document ?: return
         viewModelScope.launch {
             appContainer.aiAssistantRepository.semanticSearch(document, assistantState.value.prompt.ifBlank { searchQuery.value }, entitlements.value, enterpriseState.value)
-            assistantState.value = appContainer.aiAssistantRepository.state.value
+            syncAssistantStateFromRepository()
         }
     }
 
     fun askWorkspaceWithAi() {
         viewModelScope.launch {
             appContainer.aiAssistantRepository.askAcrossWorkspace(session.state.value.document, assistantState.value.prompt.ifBlank { "What are the key findings across these documents?" }, entitlements.value, enterpriseState.value)
-            assistantState.value = appContainer.aiAssistantRepository.state.value
+            syncAssistantStateFromRepository()
         }
     }
 
     fun summarizeWorkspaceWithAi() {
         viewModelScope.launch {
             appContainer.aiAssistantRepository.summarizeWorkspace(session.state.value.document, entitlements.value, enterpriseState.value)
-            assistantState.value = appContainer.aiAssistantRepository.state.value
+            syncAssistantStateFromRepository()
         }
     }
 
     fun compareWorkspaceWithAi() {
         viewModelScope.launch {
             appContainer.aiAssistantRepository.compareAndSummarizeWorkspace(session.state.value.document, entitlements.value, enterpriseState.value)
-            assistantState.value = appContainer.aiAssistantRepository.state.value
+            syncAssistantStateFromRepository()
         }
     }
 
@@ -568,38 +598,182 @@ class EditorViewModel(
         val document = session.state.value.document ?: return
         viewModelScope.launch {
             appContainer.aiAssistantRepository.pinDocument(document)
-            assistantState.value = appContainer.aiAssistantRepository.state.value
+            syncAssistantStateFromRepository()
         }
     }
 
     fun toggleAiWorkspaceDocument(documentKey: String, selected: Boolean) {
         viewModelScope.launch {
             appContainer.aiAssistantRepository.toggleWorkspaceDocument(documentKey, selected)
-            assistantState.value = appContainer.aiAssistantRepository.state.value
+            syncAssistantStateFromRepository()
         }
     }
 
     fun unpinAiWorkspaceDocument(documentKey: String) {
         viewModelScope.launch {
             appContainer.aiAssistantRepository.unpinDocument(documentKey)
-            assistantState.value = appContainer.aiAssistantRepository.state.value
+            syncAssistantStateFromRepository()
         }
     }
 
     fun saveAiWorkspaceDocumentSet(title: String) {
         viewModelScope.launch {
             appContainer.aiAssistantRepository.saveWorkspaceDocumentSet(title)
-            assistantState.value = appContainer.aiAssistantRepository.state.value
+            syncAssistantStateFromRepository()
         }
     }
 
     fun updateAssistantPrivacyMode(mode: AssistantPrivacyMode) {
         viewModelScope.launch {
             appContainer.aiAssistantRepository.updateSettings(assistantState.value.settings.copy(privacyMode = mode))
-            assistantState.value = appContainer.aiAssistantRepository.state.value
+            syncAssistantStateFromRepository()
         }
     }
 
+    fun setAssistantAudioEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            appContainer.aiAssistantRepository.updateSettings(
+                assistantState.value.settings.copy(
+                    spokenResponsesEnabled = enabled,
+                    readAloudEnabled = enabled,
+                    voicePromptCaptureEnabled = enabled,
+                ),
+            )
+            syncAssistantStateFromRepository()
+            refreshAssistantAudioAvailability()
+        }
+    }
+
+    fun startVoicePromptCapture() {
+        if (!isAudioFeatureAllowed()) {
+            assistantAudioState.value = assistantAudioState.value.copy(enabled = false, reason = "Audio features are disabled by policy.")
+            syncAssistantStateFromRepository()
+            return
+        }
+        voiceCaptureJob?.cancel()
+        voiceCaptureJob = viewModelScope.launch {
+            appContainer.readAloudEngine.stop()
+            assistantAudioState.value = assistantAudioState.value.beginVoiceCapture()
+            syncAssistantStateFromRepository()
+            appContainer.speechCaptureEngine.startCapture().collect { event ->
+                assistantAudioState.value = assistantAudioState.value.reduceVoiceCaptureEvent(event)
+                if (event is SpeechCaptureEvent.FinalResult) {
+                    updateAssistantPrompt(event.transcript)
+                    askPdf()
+                }
+                syncAssistantStateFromRepository()
+            }
+        }
+    }
+
+    fun stopVoicePromptCapture() {
+        appContainer.speechCaptureEngine.stopCapture()
+        assistantAudioState.value = assistantAudioState.value.voiceCaptureStopped()
+        syncAssistantStateFromRepository()
+    }
+
+    fun cancelVoicePromptCapture() {
+        appContainer.speechCaptureEngine.cancelCapture()
+        assistantAudioState.value = assistantAudioState.value.voiceCaptureCancelled()
+        syncAssistantStateFromRepository()
+    }
+
+    fun readCurrentPageAloud() {
+        val document = session.state.value.document ?: return
+        val pageIndex = session.state.value.selection.selectedPageIndex
+        viewModelScope.launch {
+            val indexedPage = runCatching { appContainer.documentSearchService.ensureIndex(document) }
+                .getOrNull()
+                ?.firstOrNull { it.pageIndex == pageIndex }
+            val pageText = indexedPage
+                ?.blocks
+                ?.joinToString(separator = " ") { it.text }
+                ?.takeIf { it.isNotBlank() }
+                ?: searchResults.value.selectedHit?.matchText
+                ?: return@launch
+            startReadAloud("Page ${pageIndex + 1}", pageText)
+        }
+    }
+
+    fun readSelectedTextAloud() {
+        val selection = selectedTextSelection.value ?: return
+        startReadAloud("Selection", selection.text)
+    }
+
+    fun stopReadAloud() {
+        appContainer.readAloudEngine.stop()
+        assistantAudioState.value = assistantAudioState.value.readAloudStopped()
+        syncAssistantStateFromRepository()
+    }
+
+    fun startVoiceCommentForNewThread() {
+        if (!isAudioFeatureAllowed()) {
+            localEvents.tryEmit(EditorSessionEvent.UserMessage("Audio features are disabled by policy"))
+            return
+        }
+        val attachment = runCatching { appContainer.voiceCommentRuntime.startRecording() }.getOrElse {
+            localEvents.tryEmit(EditorSessionEvent.UserMessage(it.message ?: "Unable to start recording"))
+            return
+        }
+        pendingThreadVoiceComment.value = VoiceCommentAttachmentModel(
+            id = attachment.nameWithoutExtension,
+            localFilePath = attachment.absolutePath,
+            mimeType = "audio/mp4",
+            durationMillis = 0,
+            createdAtEpochMillis = System.currentTimeMillis(),
+        )
+    }
+
+    fun stopVoiceCommentForNewThread() {
+        pendingThreadVoiceComment.value = appContainer.voiceCommentRuntime.stopRecording()
+    }
+
+    fun cancelVoiceCommentForNewThread() {
+        appContainer.voiceCommentRuntime.cancelRecording()
+        pendingThreadVoiceComment.value = null
+    }
+
+    fun startVoiceCommentReply(threadId: String) {
+        if (!isAudioFeatureAllowed()) {
+            localEvents.tryEmit(EditorSessionEvent.UserMessage("Audio features are disabled by policy"))
+            return
+        }
+        val file = runCatching { appContainer.voiceCommentRuntime.startRecording() }.getOrElse {
+            localEvents.tryEmit(EditorSessionEvent.UserMessage(it.message ?: "Unable to start recording"))
+            return
+        }
+        pendingReplyVoiceComments.value = pendingReplyVoiceComments.value + (threadId to VoiceCommentAttachmentModel(
+            id = file.nameWithoutExtension,
+            localFilePath = file.absolutePath,
+            mimeType = "audio/mp4",
+            durationMillis = 0,
+            createdAtEpochMillis = System.currentTimeMillis(),
+        ))
+    }
+
+    fun stopVoiceCommentReply(threadId: String) {
+        appContainer.voiceCommentRuntime.stopRecording()?.let { attachment ->
+            pendingReplyVoiceComments.value = pendingReplyVoiceComments.value + (threadId to attachment)
+        }
+    }
+
+    fun cancelVoiceCommentReply(threadId: String) {
+        appContainer.voiceCommentRuntime.cancelRecording()
+        pendingReplyVoiceComments.value = pendingReplyVoiceComments.value - threadId
+    }
+
+    fun playVoiceComment(commentId: String) {
+        val comment = reviewThreads.value.flatMap { it.comments }.firstOrNull { it.id == commentId } ?: return
+        val attachment = comment.voiceAttachment ?: return
+        runCatching { appContainer.voiceCommentRuntime.startPlayback(attachment) }
+            .onSuccess { activeVoiceCommentPlaybackId.value = commentId }
+            .onFailure { localEvents.tryEmit(EditorSessionEvent.UserMessage(it.message ?: "Unable to play voice comment")) }
+    }
+
+    fun stopVoiceCommentPlayback() {
+        appContainer.voiceCommentRuntime.stopPlayback()
+        activeVoiceCommentPlaybackId.value = null
+    }
     fun openAssistantCitation(pageIndex: Int) {
         viewModelScope.launch {
             session.updateSelection(
@@ -767,6 +941,48 @@ class EditorViewModel(
                 recordSecurityAudit(AuditEventType.ProtectedExported, "Exported markdown copy", mapOf("path" to result.artifacts.first().path))
             }.onFailure {
                 localEvents.emit(EditorSessionEvent.UserMessage(it.message ?: "Markdown export failed"))
+            }
+        }
+    }
+
+    fun exportDocumentAsWord() {
+        val document = session.state.value.document ?: return
+        if (!ensureExportAllowed(document)) return
+        viewModelScope.launch {
+            runCatching {
+                appContainer.workflowRepository.exportDocumentAsWord(
+                    document = document,
+                    destination = exportDirectory().resolve(document.documentRef.displayName.removeSuffix(".pdf") + ".docx"),
+                )
+            }.onSuccess { result ->
+                localEvents.emit(EditorSessionEvent.UserMessage("Exported Word document to ${result.artifacts.first().displayName}"))
+                recordActivity(ActivityEventType.Exported, "Exported Word")
+                recordSecurityAudit(AuditEventType.ProtectedExported, "Exported Word copy", mapOf("path" to result.artifacts.first().path))
+            }.onFailure {
+                localEvents.emit(EditorSessionEvent.UserMessage(it.message ?: "Word export failed"))
+            }
+        }
+    }
+
+    fun importSourceAsPdf(uri: Uri) {
+        viewModelScope.launch {
+            val source = copyUriToCache(uri, "import-source", ".${uri.lastPathSegment?.substringAfterLast('.', "bin") ?: "bin"}")
+                ?: run {
+                    localEvents.emit(EditorSessionEvent.UserMessage("Unable to read selected source"))
+                    return@launch
+                }
+            runCatching {
+                appContainer.workflowRepository.importSourceAsPdf(source, source.nameWithoutExtension + ".pdf")
+            }.onSuccess { result ->
+                session.openDocument(result.request)
+                refreshThumbnails()
+                refreshFormSupportData()
+                refreshSearchSupportData(forceSync = true)
+                refreshCollaborationData()
+                refreshWorkflowData()
+                localEvents.emit(EditorSessionEvent.UserMessage("Imported ${source.name} as PDF"))
+            }.onFailure {
+                localEvents.emit(EditorSessionEvent.UserMessage(it.message ?: "Import to PDF failed"))
             }
         }
     }
@@ -1291,11 +1507,26 @@ class EditorViewModel(
     fun mergeDocuments(uris: List<Uri>) {
         if (uris.isEmpty()) return
         viewModelScope.launch {
-            val requests = uris.mapIndexed { index, uri -> OpenDocumentRequest.FromUri(uri.toString(), uri.lastPathSegment ?: "merge_${index + 1}.pdf") }
-            val pages = repository.importPages(requests)
-            val insertIndex = (selectedPageIndexes.value.maxOrNull()?.plus(1)) ?: (session.state.value.document?.pageCount ?: 0)
-            session.execute(MergePagesCommand(insertIndex, pages))
-            refreshThumbnails()
+            val sourceFiles = uris.mapIndexedNotNull { index, uri ->
+                val suffix = ".${uri.lastPathSegment?.substringAfterLast('.', "pdf") ?: "pdf"}"
+                copyUriToCache(uri, "merge-source-${index + 1}", suffix)
+            }
+            if (sourceFiles.isEmpty()) {
+                localEvents.emit(EditorSessionEvent.UserMessage("No mergeable sources were selected"))
+                return@launch
+            }
+            runCatching {
+                appContainer.workflowRepository.mergeSourcesAsPdf(sourceFiles, "merged_${System.currentTimeMillis()}.pdf")
+            }.onSuccess { result ->
+                session.openDocument(result.request)
+                refreshThumbnails()
+                refreshFormSupportData()
+                refreshSearchSupportData(forceSync = true)
+                refreshWorkflowData()
+                localEvents.emit(EditorSessionEvent.UserMessage("Merged ${sourceFiles.size} source file(s)"))
+            }.onFailure {
+                localEvents.emit(EditorSessionEvent.UserMessage(it.message ?: "Merge failed"))
+            }
         }
     }
 
@@ -1813,6 +2044,38 @@ class EditorViewModel(
         isSearchIndexing.value = false
     }
 
+    private fun isAudioFeatureAllowed(): Boolean {
+        return enterpriseState.value.adminPolicy.aiEnabled && enterpriseState.value.adminPolicy.audioFeaturesEnabled
+    }
+
+    private suspend fun refreshAssistantAudioAvailability() {
+        val allowed = isAudioFeatureAllowed() && assistantState.value.settings.voicePromptCaptureEnabled
+        assistantAudioState.value = assistantAudioState.value.copy(
+            enabled = allowed,
+            reason = if (allowed) null else "Audio or AI features are disabled by enterprise policy.",
+        )
+        syncAssistantStateFromRepository()
+    }
+
+    private fun syncAssistantStateFromRepository() {
+        assistantState.value = appContainer.aiAssistantRepository.state.value.copy(audio = assistantAudioState.value)
+    }
+
+    private fun startReadAloud(title: String, text: String) {
+        if (!isAudioFeatureAllowed()) {
+            assistantAudioState.value = assistantAudioState.value.copy(enabled = false, reason = "Audio features are disabled by policy.")
+            syncAssistantStateFromRepository()
+            return
+        }
+        readAloudJob?.cancel()
+        readAloudJob = viewModelScope.launch {
+            appContainer.speechCaptureEngine.cancelCapture()
+            appContainer.readAloudEngine.speak(ReadAloudRequest(title = title, text = text)).collect { event ->
+                assistantAudioState.value = assistantAudioState.value.reduceReadAloudEvent(event)
+                syncAssistantStateFromRepository()
+            }
+        }
+    }
     private suspend fun refreshAssistantData() {
         appContainer.aiAssistantRepository.refresh(
             document = session.state.value.document,
@@ -1821,7 +2084,7 @@ class EditorViewModel(
             enterpriseState = enterpriseState.value,
         )
         appContainer.aiAssistantRepository.refreshProviderCatalog(entitlements.value, enterpriseState.value)
-        assistantState.value = appContainer.aiAssistantRepository.state.value
+        syncAssistantStateFromRepository()
     }
     private suspend fun refreshEnterpriseData() {
         enterpriseState.value = appContainer.enterpriseAdminRepository.refreshRemoteState(force = false)
@@ -1951,6 +2214,28 @@ class EditorViewModel(
 }
 
 private fun Set<Int>.toggle(index: Int): Set<Int> = if (index in this) this - index else this + index
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -40,6 +40,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.aymanelbanhawy.aiassistant.core.AiProviderDraft
 import com.aymanelbanhawy.aiassistant.core.AiProviderKind
@@ -78,15 +82,22 @@ fun AssistantSidebar(
     onTestConnection: () -> Unit,
     onCancelRequest: () -> Unit,
     onOpenCitation: (Int) -> Unit,
+    onStartVoicePromptCapture: () -> Unit,
+    onStopVoicePromptCapture: () -> Unit,
+    onCancelVoicePromptCapture: () -> Unit,
+    onReadCurrentPageAloud: () -> Unit,
+    onReadSelectionAloud: () -> Unit,
+    onStopReadAloud: () -> Unit,
+    onAssistantAudioEnabledChanged: (Boolean) -> Unit,
 ) {
     val providerState = state.providerRuntime
     val draft = providerState.draft
     var workspaceSetTitle by remember { mutableStateOf("") }
-    Surface(modifier = modifier, tonalElevation = 2.dp, shape = MaterialTheme.shapes.extraLarge) {
+    Surface(modifier = modifier.semantics { paneTitle = "AI assistant panel" }.testTag("assistant-sidebar"), tonalElevation = 4.dp, shadowElevation = 8.dp, shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surface) {
         LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("AI Assistant", style = MaterialTheme.typography.titleLarge)
+                    Text("AI Assistant", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
                     Text(state.availability.reason ?: providerState.diagnosticsMessage.ifBlank { "Grounded answers use page and region citations." }, style = MaterialTheme.typography.bodyMedium, color = if (state.availability.enabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
                 }
             }
@@ -167,6 +178,41 @@ fun AssistantSidebar(
                 item { FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { providerState.availableModels.take(8).forEach { model -> FilterChip(selected = draft.modelId == model.id, onClick = { onProviderDraftChanged(draft.copy(modelId = model.id)) }, label = { Text(model.displayName) }) } } }
             }
             item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { AssistantActionButton(icon = Icons.Outlined.CheckCircleOutline, tooltip = "Save Provider", onClick = onSaveProvider); AssistantActionButton(icon = Icons.Outlined.NetworkCheck, tooltip = "Test Connection", onClick = onTestConnection); AssistantActionButton(icon = Icons.Outlined.ModelTraining, tooltip = "Refresh Models", onClick = onRefreshProviders); if (state.isWorking) AssistantActionButton(icon = Icons.Outlined.StopCircle, tooltip = "Cancel Request", onClick = onCancelRequest) } }
+            item { Text("Voice and Read Aloud", style = MaterialTheme.typography.titleMedium) }
+            item {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = state.settings.spokenResponsesEnabled,
+                        onClick = { onAssistantAudioEnabledChanged(!state.settings.spokenResponsesEnabled) },
+                        label = { Text(if (state.settings.spokenResponsesEnabled) "Audio On" else "Audio Off") },
+                    )
+                    AssistantActionButton(icon = Icons.Outlined.AutoAwesome, tooltip = "Capture Voice Prompt", enabled = state.audio.enabled && !state.isWorking, onClick = onStartVoicePromptCapture)
+                    AssistantActionButton(icon = Icons.Outlined.StopCircle, tooltip = "Stop Voice Capture", enabled = state.audio.voiceCapture.status == com.aymanelbanhawy.aiassistant.core.VoiceCaptureStatus.Listening || state.audio.voiceCapture.status == com.aymanelbanhawy.aiassistant.core.VoiceCaptureStatus.Recognizing, onClick = onStopVoicePromptCapture)
+                    AssistantActionButton(icon = Icons.Outlined.StopCircle, tooltip = "Cancel Voice Capture", enabled = state.audio.voiceCapture.status != com.aymanelbanhawy.aiassistant.core.VoiceCaptureStatus.Idle, onClick = onCancelVoicePromptCapture)
+                    AssistantActionButton(icon = Icons.Outlined.Description, tooltip = "Read Current Page", enabled = state.audio.enabled, onClick = onReadCurrentPageAloud)
+                    AssistantActionButton(icon = Icons.AutoMirrored.Outlined.Subject, tooltip = "Read Selection", enabled = state.audio.enabled, onClick = onReadSelectionAloud)
+                    AssistantActionButton(icon = Icons.Outlined.StopCircle, tooltip = "Stop Read Aloud", enabled = state.audio.readAloud.status == com.aymanelbanhawy.aiassistant.core.ReadAloudStatus.Preparing || state.audio.readAloud.status == com.aymanelbanhawy.aiassistant.core.ReadAloudStatus.Speaking, onClick = onStopReadAloud)
+                }
+            }
+            if (state.audio.reason != null || state.audio.voiceCapture.diagnosticsMessage.isNotBlank() || state.audio.readAloud.diagnosticsMessage.isNotBlank()) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        state.audio.reason?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+                        if (state.audio.voiceCapture.diagnosticsMessage.isNotBlank()) {
+                            Text(state.audio.voiceCapture.diagnosticsMessage, style = MaterialTheme.typography.bodySmall)
+                        }
+                        if (state.audio.voiceCapture.partialTranscript.isNotBlank()) {
+                            Text(state.audio.voiceCapture.partialTranscript, style = MaterialTheme.typography.bodySmall)
+                        }
+                        if (state.audio.readAloud.diagnosticsMessage.isNotBlank()) {
+                            Text(state.audio.readAloud.diagnosticsMessage, style = MaterialTheme.typography.bodySmall)
+                        }
+                        if (state.audio.readAloud.progress.currentSegment.isNotBlank()) {
+                            Text(state.audio.readAloud.progress.currentSegment, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
             providerState.activeCapabilities?.let { capabilities -> item { Text("Capabilities: streaming=${capabilities.supportsStreaming}, json=${capabilities.supportsJsonMode}, maxContext=${capabilities.maxContextHint ?: "unknown"}", style = MaterialTheme.typography.bodySmall) } }
             providerState.lastError?.let { error -> item { Text(error.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) } }
             if (providerState.discoveredLocalApps.isNotEmpty()) {
@@ -305,4 +351,8 @@ private fun defaultProviderName(kind: AiProviderKind): String = when (kind) {
     AiProviderKind.OpenAi -> "OpenAI"
     AiProviderKind.OpenAiCompatible -> "OpenAI Compatible"
 }
+
+
+
+
 

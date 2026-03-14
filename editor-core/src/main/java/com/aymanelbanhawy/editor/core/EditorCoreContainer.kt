@@ -21,6 +21,7 @@ import com.aymanelbanhawy.editor.core.forms.FormSupportRepository
 import com.aymanelbanhawy.editor.core.forms.PdfBoxDigitalSignatureService
 import com.aymanelbanhawy.editor.core.migration.CoreMigrationRepository
 import com.aymanelbanhawy.editor.core.migration.DefaultCoreMigrationRepository
+import com.aymanelbanhawy.editor.core.migration.FileLegacyEditCompatibilityBridge
 import com.aymanelbanhawy.editor.core.ocr.OcrJobPipeline
 import com.aymanelbanhawy.editor.core.ocr.OcrSessionStore
 import com.aymanelbanhawy.editor.core.ocr.PdfBoxOcrPdfWriter
@@ -48,6 +49,8 @@ import com.aymanelbanhawy.editor.core.work.TelemetryUploadScheduler
 import com.aymanelbanhawy.editor.core.work.WorkManagerAutosaveScheduler
 import com.aymanelbanhawy.editor.core.work.WorkManagerCollaborationSyncScheduler
 import com.aymanelbanhawy.editor.core.workflow.DefaultWorkflowRepository
+import com.aymanelbanhawy.editor.core.workflow.DocumentConversionRuntime
+import com.aymanelbanhawy.editor.core.workflow.OpenXmlDocxDocumentConversionProvider
 import com.aymanelbanhawy.editor.core.workflow.WorkflowRepository
 import com.aymanelbanhawy.editor.core.write.PdfBoxWriteEngine
 import com.aymanelbanhawy.editor.core.write.RoomMutationInvalidationHooks
@@ -65,6 +68,7 @@ class EditorCoreContainer(
         classDiscriminator = "_type"
     }
     private val ocrSessionStore = OcrSessionStore(json, database.ocrJobDao())
+    private val legacyEditCompatibilityBridge = FileLegacyEditCompatibilityBridge(json)
     private val secureFileCipher = AndroidSecureFileCipher(appContext)
     private val enterpriseCredentialStore = EnterpriseCredentialStore(appContext, json)
     private val enterpriseRemoteRegistry = EnterpriseRemoteRegistry(appContext, json)
@@ -138,6 +142,7 @@ class EditorCoreContainer(
         ),
         secureFileCipher = secureFileCipher,
         ocrSessionStore = ocrSessionStore,
+        legacyEditCompatibilityBridge = legacyEditCompatibilityBridge,
         json = json,
         digitalSignatureService = digitalSignatureService,
         securityRepository = securityRepository,
@@ -157,6 +162,7 @@ class EditorCoreContainer(
     val pageThumbnailRepository: PageThumbnailRepository = DefaultPageThumbnailRepository(appContext, runtimeDiagnosticsRepository)
     val searchIndexScheduler: SearchIndexScheduler = SearchIndexScheduler(workManager)
     val scanImportService: ScanImportService = DefaultScanImportService(appContext, ocrJobPipeline)
+    private val documentConversionRuntime = DocumentConversionRuntime(listOf(OpenXmlDocxDocumentConversionProvider(appContext)))
     private val collaborationSyncScheduler = WorkManagerCollaborationSyncScheduler(workManager)
     private val collaborationCredentialStore = CollaborationCredentialStore(appContext, json)
     private val collaborationRemoteRegistry = CollaborationRemoteRegistry(
@@ -176,6 +182,7 @@ class EditorCoreContainer(
         ocrSessionStore = ocrSessionStore,
         documentRepository = documentRepository,
         scanImportService = scanImportService,
+        conversionRuntime = documentConversionRuntime,
         json = json,
     )
     val collaborationRepository: CollaborationRepository = DefaultCollaborationRepository(
@@ -200,6 +207,7 @@ class EditorCoreContainer(
         syncQueueDao = database.syncQueueDao(),
         diagnosticsRepository = runtimeDiagnosticsRepository,
         json = json,
+        legacyEditCompatibilityBridge = legacyEditCompatibilityBridge,
     )
     private val autosaveScheduler = WorkManagerAutosaveScheduler(documentRepository, workManager)
     private val telemetryUploadScheduler = TelemetryUploadScheduler(workManager)
@@ -215,6 +223,21 @@ class EditorCoreContainer(
 
     fun recentDocumentDao() = database.recentDocumentDao()
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

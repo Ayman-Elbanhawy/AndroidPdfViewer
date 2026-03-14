@@ -2,6 +2,7 @@ package com.aymanelbanhawy.editor.core.write
 
 import android.content.Context
 import android.content.ContextWrapper
+import com.aymanelbanhawy.editor.core.migration.FileLegacyEditCompatibilityBridge
 import com.aymanelbanhawy.editor.core.model.AnnotationExportMode
 import com.aymanelbanhawy.editor.core.model.DocumentModel
 import com.aymanelbanhawy.editor.core.model.DocumentSourceType
@@ -18,6 +19,7 @@ import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import java.io.File
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -32,19 +34,22 @@ class PdfWriteEnginePersistenceTest {
         override fun getApplicationContext(): Context = this
     }
 
+    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; classDiscriminator = "_type" }
+
     init {
         PDFBoxResourceLoader.init(context)
     }
 
     @Test
-    fun load_readsLegacyPageEditCompatibility_andMigratesForward() = runBlocking {
+    fun load_readsMigratedMutationSession_afterCompatibilityBridgeUpgrade() = runBlocking {
         val pdfFile = createPdf("legacy-${System.nanoTime()}.pdf", listOf(PDRectangle.LETTER))
-        val legacyCompatibilityFile = File(pdfFile.absolutePath + ".page" + "edits.json")
+        val legacyCompatibilityFile = File(pdfFile.absolutePath + FileLegacyEditCompatibilityBridge.legacySuffix())
         legacyCompatibilityFile.writeText(
             """
             {"documentKey":"${pdfFile.absolutePath.replace("\\", "\\\\")}","editObjects":[{"_type":"com.aymanelbanhawy.editor.core.model.TextBoxEditModel","id":"text-1","pageIndex":0,"bounds":{"left":0.1,"top":0.1,"right":0.4,"bottom":0.2},"rotationDegrees":0.0,"opacity":1.0,"text":"Legacy","fontFamily":"Sans","fontSizeSp":16.0,"textColorHex":"#202124","alignment":"Start","lineSpacingMultiplier":1.2}],"updatedAtEpochMillis":1}
             """.trimIndent(),
         )
+        val bridge = FileLegacyEditCompatibilityBridge(json)
         val engine = PdfBoxWriteEngine(context)
         val ref = PdfDocumentRef(
             uriString = pdfFile.toURI().toString(),
@@ -54,13 +59,14 @@ class PdfWriteEnginePersistenceTest {
             workingCopyPath = pdfFile.absolutePath,
         )
 
+        bridge.upgradeIfNeeded(ref)
         val loaded = engine.load(ref)
 
         assertThat(loaded.editObjectsByPage[0]).hasSize(1)
         assertThat((loaded.editObjectsByPage[0]!!.single() as TextBoxEditModel).text).isEqualTo("Legacy")
         assertThat(File(pdfFile.absolutePath + ".mutations.json").exists()).isTrue()
         assertThat(legacyCompatibilityFile.exists()).isFalse()
-        assertThat(File(pdfFile.absolutePath + ".pageedits.json.legacy-migrated").exists()).isTrue()
+        assertThat(File(pdfFile.absolutePath + FileLegacyEditCompatibilityBridge.legacySuffix() + ".legacy-migrated").exists()).isTrue()
     }
 
     @Test
@@ -124,7 +130,7 @@ class PdfWriteEnginePersistenceTest {
         }
         assertThat(File(destination.absolutePath + ".mutations.json").exists()).isTrue()
         assertThat(File(destination.absolutePath + ".mutationlog.json").exists()).isTrue()
-        assertThat(File(destination.absolutePath + ".pageedits.json").exists()).isFalse()
+        assertThat(File(destination.absolutePath + FileLegacyEditCompatibilityBridge.legacySuffix()).exists()).isFalse()
         assertThat(result.structuralMutationApplied).isTrue()
         assertThat(result.executionMode).isEqualTo(SaveExecutionMode.SaveAs)
     }
@@ -185,7 +191,3 @@ class PdfWriteEnginePersistenceTest {
         return file
     }
 }
-
-
-
-

@@ -45,6 +45,7 @@ data class ReviewCommentModel(
     val createdAtEpochMillis: Long,
     val modifiedAtEpochMillis: Long,
     val mentions: List<MentionModel> = emptyList(),
+    val voiceAttachment: VoiceCommentAttachmentModel? = null,
 )
 
 @Serializable
@@ -337,8 +338,8 @@ interface CollaborationRepository {
     suspend fun shareLinks(documentKey: String): List<ShareLinkModel>
     suspend fun createShareLink(document: DocumentModel, title: String, permission: SharePermission, expiresAtEpochMillis: Long?): ShareLinkModel
     suspend fun reviewThreads(documentKey: String, filter: ReviewFilterModel = ReviewFilterModel()): List<ReviewThreadModel>
-    suspend fun addReviewThread(document: DocumentModel, title: String, message: String, pageIndex: Int?, anchorBounds: NormalizedRect?): ReviewThreadModel
-    suspend fun addReviewReply(threadId: String, author: String, message: String): ReviewThreadModel
+    suspend fun addReviewThread(document: DocumentModel, title: String, message: String, pageIndex: Int?, anchorBounds: NormalizedRect?, voiceAttachment: VoiceCommentAttachmentModel? = null): ReviewThreadModel
+    suspend fun addReviewReply(threadId: String, author: String, message: String, voiceAttachment: VoiceCommentAttachmentModel? = null): ReviewThreadModel
     suspend fun setThreadResolved(threadId: String, resolved: Boolean): ReviewThreadModel?
     suspend fun versionSnapshots(documentKey: String): List<VersionSnapshotModel>
     suspend fun createVersionSnapshot(document: DocumentModel, label: String): VersionSnapshotModel
@@ -347,4 +348,5 @@ interface CollaborationRepository {
     suspend fun pendingSyncOperations(documentKey: String): List<SyncOperationModel>
     suspend fun processSync(documentKey: String): CollaborationSyncSummary
 }
+
 

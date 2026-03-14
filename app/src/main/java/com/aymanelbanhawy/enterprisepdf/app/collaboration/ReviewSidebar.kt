@@ -18,8 +18,11 @@ import androidx.compose.material.icons.outlined.DriveFileRenameOutline
 import androidx.compose.material.icons.outlined.FilterAlt
 import androidx.compose.material.icons.outlined.IosShare
 import androidx.compose.material.icons.outlined.MarkUnreadChatAlt
+import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.RecordVoiceOver
 import androidx.compose.material.icons.outlined.Replay
 import androidx.compose.material.icons.outlined.Save
+import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -37,6 +40,7 @@ import com.aymanelbanhawy.editor.core.collaboration.ReviewThreadModel
 import com.aymanelbanhawy.editor.core.collaboration.ReviewThreadState
 import com.aymanelbanhawy.editor.core.collaboration.ShareLinkModel
 import com.aymanelbanhawy.editor.core.collaboration.VersionSnapshotModel
+import com.aymanelbanhawy.editor.core.collaboration.VoiceCommentAttachmentModel
 import com.aymanelbanhawy.editor.core.workflow.CompareMarkerModel
 import com.aymanelbanhawy.editor.core.workflow.CompareReportModel
 import com.aymanelbanhawy.editor.core.workflow.FormTemplateModel
@@ -54,6 +58,9 @@ fun ReviewSidebar(
     workflowRequests: List<WorkflowRequestModel>,
     filter: ReviewFilterModel,
     pendingSyncCount: Int,
+    pendingThreadVoiceComment: VoiceCommentAttachmentModel?,
+    pendingReplyVoiceComments: Map<String, VoiceCommentAttachmentModel>,
+    activeVoiceCommentPlaybackId: String?,
     onCreateShareLink: () -> Unit,
     onCreateSnapshot: () -> Unit,
     onSyncNow: () -> Unit,
@@ -65,6 +72,14 @@ fun ReviewSidebar(
     onAddThread: (String, String) -> Unit,
     onAddReply: (String, String) -> Unit,
     onToggleResolved: (String, Boolean) -> Unit,
+    onStartThreadVoiceComment: () -> Unit,
+    onStopThreadVoiceComment: () -> Unit,
+    onCancelThreadVoiceComment: () -> Unit,
+    onStartReplyVoiceComment: (String) -> Unit,
+    onStopReplyVoiceComment: (String) -> Unit,
+    onCancelReplyVoiceComment: (String) -> Unit,
+    onPlayVoiceComment: (String) -> Unit,
+    onStopVoiceCommentPlayback: () -> Unit,
     onOpenCompareMarker: (CompareMarkerModel) -> Unit,
 ) {
     var draftTitle by remember { mutableStateOf("") }
@@ -82,6 +97,7 @@ fun ReviewSidebar(
                 IconTooltipButton(icon = Icons.Outlined.CompareArrows, tooltip = "Compare With Latest Snapshot", onClick = onCompareAgainstLatestSnapshot)
                 IconTooltipButton(icon = Icons.Outlined.CloudSync, tooltip = "Sync $pendingSyncCount", onClick = onSyncNow)
             }
+
             if (compareReports.isNotEmpty()) {
                 Text("Recent compare", style = MaterialTheme.typography.titleMedium)
                 compareReports.take(3).forEach { report ->
@@ -105,6 +121,7 @@ fun ReviewSidebar(
                     }
                 }
             }
+
             Text("Thread filters", style = MaterialTheme.typography.titleMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 IconTooltipButton(icon = Icons.Outlined.FilterAlt, tooltip = "Show All Threads", selected = filter.state == null, onClick = { onFilterChanged(filter.copy(state = null)) })
@@ -112,6 +129,7 @@ fun ReviewSidebar(
                 IconTooltipButton(icon = Icons.Outlined.Done, tooltip = "Show Resolved Threads", selected = filter.state == ReviewThreadState.Resolved, onClick = { onFilterChanged(filter.copy(state = ReviewThreadState.Resolved)) })
             }
             OutlinedTextField(modifier = Modifier.fillMaxWidth(), value = filter.query, onValueChange = { onFilterChanged(filter.copy(query = it)) }, label = { Text("Search threads") }, singleLine = true)
+
             Text("Workflow prep", style = MaterialTheme.typography.titleMedium)
             OutlinedTextField(modifier = Modifier.fillMaxWidth(), value = templateName, onValueChange = { templateName = it }, label = { Text("Template name") })
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -124,6 +142,7 @@ fun ReviewSidebar(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 IconTooltipButton(icon = Icons.Outlined.VerifiedUser, tooltip = "Send Signature Request", onClick = { onCreateSignatureRequest(recipientCsv) })
             }
+
             if (formTemplates.isNotEmpty()) {
                 Text("Templates", style = MaterialTheme.typography.titleMedium)
                 formTemplates.take(4).forEach { template ->
@@ -136,10 +155,24 @@ fun ReviewSidebar(
                     Text("${request.title} � ${request.status.name} � ${request.recipients.size} recipient(s)", style = MaterialTheme.typography.bodySmall)
                 }
             }
+
             Text("New thread", style = MaterialTheme.typography.titleMedium)
             OutlinedTextField(modifier = Modifier.fillMaxWidth(), value = draftTitle, onValueChange = { draftTitle = it }, label = { Text("Title") })
             OutlinedTextField(modifier = Modifier.fillMaxWidth(), value = draftMessage, onValueChange = { draftMessage = it }, label = { Text("Comment with @mentions") })
-            IconTooltipButton(icon = Icons.Outlined.ContentCopy, tooltip = "Add Review Thread", onClick = { onAddThread(draftTitle, draftMessage); draftTitle = ""; draftMessage = "" })
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                IconTooltipButton(icon = Icons.Outlined.RecordVoiceOver, tooltip = "Record Thread Voice Comment", onClick = onStartThreadVoiceComment)
+                IconTooltipButton(icon = Icons.Outlined.Stop, tooltip = "Stop Thread Voice Comment", onClick = onStopThreadVoiceComment)
+                IconTooltipButton(icon = Icons.Outlined.Replay, tooltip = "Cancel Thread Voice Comment", onClick = onCancelThreadVoiceComment)
+                IconTooltipButton(icon = Icons.Outlined.ContentCopy, tooltip = "Add Review Thread", onClick = {
+                    onAddThread(draftTitle, draftMessage)
+                    draftTitle = ""
+                    draftMessage = ""
+                })
+            }
+            pendingThreadVoiceComment?.let {
+                Text("Voice comment attached (${it.durationMillis} ms)", style = MaterialTheme.typography.bodySmall)
+            }
+
             if (shareLinks.isNotEmpty()) {
                 Text("Share links", style = MaterialTheme.typography.titleMedium)
                 shareLinks.take(6).forEach { link ->
@@ -152,6 +185,7 @@ fun ReviewSidebar(
                     Text("${snapshot.label} � comments ${snapshot.comparison.commentDelta}", style = MaterialTheme.typography.bodySmall)
                 }
             }
+
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(reviewThreads, key = { it.id }) { thread ->
                     Surface(shape = MaterialTheme.shapes.large, tonalElevation = 1.dp) {
@@ -160,9 +194,25 @@ fun ReviewSidebar(
                             Text("${thread.createdBy} � ${thread.state.name}", style = MaterialTheme.typography.labelMedium)
                             thread.comments.forEach { comment ->
                                 Text("${comment.author}: ${comment.message}", style = MaterialTheme.typography.bodySmall)
+                                comment.voiceAttachment?.let { attachment ->
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text("Voice comment (${attachment.durationMillis} ms)", style = MaterialTheme.typography.bodySmall)
+                                        if (activeVoiceCommentPlaybackId == comment.id) {
+                                            IconTooltipButton(icon = Icons.Outlined.Stop, tooltip = "Stop Voice Comment", onClick = onStopVoiceCommentPlayback)
+                                        } else {
+                                            IconTooltipButton(icon = Icons.Outlined.PlayArrow, tooltip = "Play Voice Comment", onClick = { onPlayVoiceComment(comment.id) })
+                                        }
+                                    }
+                                }
                             }
                             OutlinedTextField(modifier = Modifier.fillMaxWidth(), value = replyByThreadId[thread.id].orEmpty(), onValueChange = { replyByThreadId = replyByThreadId + (thread.id to it) }, label = { Text("Reply") })
+                            pendingReplyVoiceComments[thread.id]?.let { voice ->
+                                Text("Reply voice attached (${voice.durationMillis} ms)", style = MaterialTheme.typography.bodySmall)
+                            }
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                IconTooltipButton(icon = Icons.Outlined.RecordVoiceOver, tooltip = "Record Reply Voice Comment", onClick = { onStartReplyVoiceComment(thread.id) })
+                                IconTooltipButton(icon = Icons.Outlined.Stop, tooltip = "Stop Reply Voice Comment", onClick = { onStopReplyVoiceComment(thread.id) })
+                                IconTooltipButton(icon = Icons.Outlined.Replay, tooltip = "Cancel Reply Voice Comment", onClick = { onCancelReplyVoiceComment(thread.id) })
                                 IconTooltipButton(icon = Icons.Outlined.ContentCopy, tooltip = "Reply", onClick = {
                                     val reply = replyByThreadId[thread.id].orEmpty()
                                     if (reply.isNotBlank()) {

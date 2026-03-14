@@ -15,10 +15,13 @@ import com.aymanelbanhawy.editor.core.search.IndexedPageContent
 import com.aymanelbanhawy.editor.core.search.PdfBoxTextExtractionService
 import com.aymanelbanhawy.editor.core.search.SearchContentSource
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.PDDocument
 import java.io.File
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 internal class DocumentFileWorkflowService(
     private val context: Context,
@@ -26,6 +29,8 @@ internal class DocumentFileWorkflowService(
     private val ocrSessionStore: OcrSessionStore,
     private val documentRepository: DocumentRepository,
     private val scanImportService: ScanImportService,
+    private val conversionRuntime: DocumentConversionRuntime,
+    private val json: Json,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
 
@@ -48,13 +53,7 @@ internal class DocumentFileWorkflowService(
         destination.writeText(body)
         ExportBundleResult(
             title = "Text Export",
-            artifacts = listOf(
-                ExportArtifactModel(
-                    path = destination.absolutePath,
-                    displayName = destination.name,
-                    mimeType = "text/plain",
-                ),
-            ),
+            artifacts = listOf(ExportArtifactModel(destination.absolutePath, destination.name, "text/plain")),
         )
     }
 
@@ -67,7 +66,7 @@ internal class DocumentFileWorkflowService(
             pages.forEachIndexed { index, page ->
                 appendLine("## Page ${index + 1}")
                 appendLine()
-                val blocks = page.blocks.takeIf { it.isNotEmpty() } ?: listOf()
+                val blocks = page.blocks.takeIf { it.isNotEmpty() }.orEmpty()
                 if (blocks.isEmpty()) {
                     appendLine(page.pageText.ifBlank { "_No text detected._" })
                 } else {
@@ -81,13 +80,56 @@ internal class DocumentFileWorkflowService(
         destination.writeText(body)
         ExportBundleResult(
             title = "Markdown Export",
-            artifacts = listOf(
-                ExportArtifactModel(
-                    path = destination.absolutePath,
-                    displayName = destination.name,
-                    mimeType = "text/markdown",
-                ),
-            ),
+            artifacts = listOf(ExportArtifactModel(destination.absolutePath, destination.name, "text/markdown")),
+        )
+    }
+
+    suspend fun exportDocumentAsWord(document: DocumentModel, destination: File): ExportBundleResult = withContext(ioDispatcher) {
+        val pages = extractIndexedContent(document)
+        val provider = conversionRuntime.providerForExport(document)
+        val artifact = provider.exportPdfToWord(document, pages, destination)
+        ExportBundleResult(title = "Word Export", artifacts = listOf(artifact))
+    }
+
+    suspend fun exportCompareReport(report: CompareReportModel, destination: File, format: CompareReportExportFormat): ExportArtifactModel = withContext(ioDispatcher) {
+        destination.parentFile?.mkdirs()
+        when (format) {
+            CompareReportExportFormat.Markdown -> destination.writeText(
+                buildString {
+                    appendLine("# Compare Report")
+                    appendLine()
+                    appendLine("${report.baselineDisplayName} vs ${report.comparedDisplayName}")
+                    appendLine()
+                    appendLine(report.summary.summaryText)
+                    appendLine()
+                    report.pageChanges.forEach { change ->
+                        appendLine("## Page ${change.pageIndex + 1} · ${change.changeType.name}")
+                        appendLine(change.summary)
+                        if (change.addedLines.isNotEmpty()) {
+                            appendLine()
+                            appendLine("Added lines:")
+                            change.addedLines.forEach { appendLine("- $it") }
+                        }
+                        if (change.removedLines.isNotEmpty()) {
+                            appendLine()
+                            appendLine("Removed lines:")
+                            change.removedLines.forEach { appendLine("- $it") }
+                        }
+                        if (change.markers.isNotEmpty()) {
+                            appendLine()
+                            appendLine("Markers:")
+                            change.markers.forEach { marker -> appendLine("- Page ${marker.pageIndex + 1}: ${marker.summary}") }
+                        }
+                        appendLine()
+                    }
+                }.trim(),
+            )
+            CompareReportExportFormat.Json -> destination.writeText(json.encodeToString(CompareReportModel.serializer(), report))
+        }
+        return@withContext ExportArtifactModel(
+            path = destination.absolutePath,
+            displayName = destination.name,
+            mimeType = if (format == CompareReportExportFormat.Markdown) "text/markdown" else "application/json",
         )
     }
 
@@ -141,6 +183,45 @@ internal class DocumentFileWorkflowService(
         CreatedPdfResult(request = request, sourceImageCount = imageFiles.size)
     }
 
+    suspend fun importSourceAsPdf(source: File, displayName: String): ImportedPdfResult = withContext(ioDispatcher) {
+        val pdfFile = File(context.cacheDir, "imports/${displayName.removeSuffix(".pdf")}-${source.nameWithoutExtension}.pdf")
+        val provider = conversionRuntime.providerForImport(source)
+        provider.importSourceToPdf(source, pdfFile, displayName)
+        ImportedPdfResult(
+            request = OpenDocumentRequest.FromFile(pdfFile.absolutePath, displayNameOverride = pdfFile.name),
+            sourceFormat = source.toImportFormat(),
+        )
+    }
+
+    suspend fun mergeSourcesAsPdf(sources: List<File>, displayName: String): ImportedPdfResult = withContext(ioDispatcher) {
+        require(sources.isNotEmpty()) { "At least one source is required." }
+        val mergedFile = File(context.cacheDir, "exports/${displayName.removeSuffix(".pdf")}.pdf")
+        mergedFile.parentFile?.mkdirs()
+        val normalizedPdfs = sources.mapIndexed { index, source ->
+            if (source.extension.equals("pdf", ignoreCase = true)) {
+                source
+            } else {
+                val tempPdf = File(context.cacheDir, "imports/merge-${index + 1}-${source.nameWithoutExtension}.pdf")
+                conversionRuntime.providerForImport(source).importSourceToPdf(source, tempPdf, source.nameWithoutExtension)
+                tempPdf
+            }
+        }
+        PDDocument().use { output ->
+            normalizedPdfs.forEach { pdf ->
+                PDDocument.load(pdf).use { input ->
+                    for (pageIndex in 0 until input.numberOfPages) {
+                        output.importPage(input.getPage(pageIndex))
+                    }
+                }
+            }
+            output.save(mergedFile)
+        }
+        ImportedPdfResult(
+            request = OpenDocumentRequest.FromFile(mergedFile.absolutePath, displayNameOverride = mergedFile.name),
+            sourceFormat = if (sources.all { it.extension.equals("pdf", ignoreCase = true) }) DocumentImportFormat.Pdf else DocumentImportFormat.Docx,
+        )
+    }
+
     suspend fun optimizeDocument(
         document: DocumentModel,
         destination: File,
@@ -150,12 +231,13 @@ internal class DocumentFileWorkflowService(
         val original = File(document.documentRef.workingCopyPath)
         val originalSize = original.takeIf { it.exists() }?.length() ?: 0L
         val mode = when (preset) {
-            PdfOptimizationPreset.Light -> AnnotationExportMode.Editable
+            PdfOptimizationPreset.HighQuality -> AnnotationExportMode.Editable
             PdfOptimizationPreset.Balanced -> AnnotationExportMode.Flatten
-            PdfOptimizationPreset.Strong -> AnnotationExportMode.Flatten
+            PdfOptimizationPreset.SmallSize -> AnnotationExportMode.Flatten
+            PdfOptimizationPreset.ArchivalSafe -> AnnotationExportMode.Editable
         }
         documentRepository.saveAs(document, destination, mode)
-        OptimizationResult(
+        return@withContext OptimizationResult(
             destination = destination,
             preset = preset,
             originalSizeBytes = originalSize,
@@ -195,4 +277,13 @@ internal class DocumentFileWorkflowService(
             }
         }
     }
+
+    private fun File.toImportFormat(): DocumentImportFormat = when (extension.lowercase()) {
+        "pdf" -> DocumentImportFormat.Pdf
+        "docx" -> DocumentImportFormat.Docx
+        "txt" -> DocumentImportFormat.Text
+        "md", "markdown" -> DocumentImportFormat.Markdown
+        else -> DocumentImportFormat.Image
+    }
 }
+

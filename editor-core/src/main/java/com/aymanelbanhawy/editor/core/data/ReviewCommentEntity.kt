@@ -17,4 +17,6 @@ data class ReviewCommentEntity(
     val createdAtEpochMillis: Long,
     val modifiedAtEpochMillis: Long,
     val mentionsJson: String,
+    val voiceAttachmentJson: String? = null,
 )
+

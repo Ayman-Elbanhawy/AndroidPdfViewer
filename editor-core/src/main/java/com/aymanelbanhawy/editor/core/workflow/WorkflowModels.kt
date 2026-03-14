@@ -55,6 +55,12 @@ data class CompareReportModel(
 )
 
 @Serializable
+enum class CompareReportExportFormat {
+    Markdown,
+    Json,
+}
+
+@Serializable
 data class FormTemplateFieldModel(
     val fieldName: String,
     val label: String,
@@ -197,9 +203,19 @@ enum class ExportImageFormat {
 
 @Serializable
 enum class PdfOptimizationPreset {
-    Light,
+    HighQuality,
     Balanced,
-    Strong,
+    SmallSize,
+    ArchivalSafe,
+}
+
+@Serializable
+enum class DocumentImportFormat {
+    Pdf,
+    Docx,
+    Text,
+    Markdown,
+    Image,
 }
 
 @Serializable
@@ -227,19 +243,28 @@ data class CreatedPdfResult(
     val sourceImageCount: Int,
 )
 
+data class ImportedPdfResult(
+    val request: OpenDocumentRequest,
+    val sourceFormat: DocumentImportFormat,
+)
+
 interface WorkflowRepository {
     suspend fun compareReports(documentKey: String): List<CompareReportModel>
     suspend fun compareDocuments(document: DocumentModel, comparedRef: PdfDocumentRef): CompareReportModel
     suspend fun compareWithSnapshot(document: DocumentModel, snapshotPath: String, snapshotLabel: String): CompareReportModel
+    suspend fun exportCompareReport(reportId: String, destination: File, format: CompareReportExportFormat = CompareReportExportFormat.Markdown): ExportArtifactModel
     suspend fun exportDocumentAsText(document: DocumentModel, destination: File): ExportBundleResult
     suspend fun exportDocumentAsMarkdown(document: DocumentModel, destination: File): ExportBundleResult
+    suspend fun exportDocumentAsWord(document: DocumentModel, destination: File): ExportBundleResult
     suspend fun exportDocumentAsImages(document: DocumentModel, outputDirectory: File, format: ExportImageFormat = ExportImageFormat.Png): ExportBundleResult
     suspend fun createPdfFromImages(imageFiles: List<File>, displayName: String): CreatedPdfResult
+    suspend fun importSourceAsPdf(source: File, displayName: String): ImportedPdfResult
+    suspend fun mergeSourcesAsPdf(sources: List<File>, displayName: String): ImportedPdfResult
     suspend fun optimizeDocument(document: DocumentModel, destination: File, preset: PdfOptimizationPreset): OptimizationResult
     suspend fun formTemplates(documentKey: String): List<FormTemplateModel>
     suspend fun createFormTemplate(document: DocumentModel, name: String): FormTemplateModel
-    suspend fun exportFormTemplate(templateId: String, destination: java.io.File): java.io.File
-    suspend fun importFormTemplate(documentKey: String, source: java.io.File): FormTemplateModel
+    suspend fun exportFormTemplate(templateId: String, destination: File): File
+    suspend fun importFormTemplate(documentKey: String, source: File): FormTemplateModel
     suspend fun workflowRequests(documentKey: String): List<WorkflowRequestModel>
     suspend fun createSignatureRequest(document: DocumentModel, title: String, recipients: List<WorkflowRecipientModel>, reminderIntervalDays: Int?, expiresAtEpochMillis: Long?): WorkflowRequestModel
     suspend fun createFormRequest(document: DocumentModel, templateId: String, title: String, recipients: List<WorkflowRecipientModel>, reminderIntervalDays: Int?, expiresAtEpochMillis: Long?): WorkflowRequestModel

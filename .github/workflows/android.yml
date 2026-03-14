@@ -19,11 +19,15 @@ jobs:
       - name: Production source grep gate
         run: |
           grep -RIn "Fake[A-Za-z0-9_]*\|NoOp[A-Za-z0-9_]*\|InMemory[A-Za-z0-9_]*\|Placeholder[A-Za-z0-9_]*\|TODO\|example.invalid" ai-assistant/src/main app/src/main editor-core/src/main android-pdf-viewer/src/main && exit 1 || true
-          grep -RIn "TODO\|Placeholder\|Fake\|NoOp\|InMemory" editor-core/src/main/java/com/aymanelbanhawy/editor/core/ocr editor-core/src/main/java/com/aymanelbanhawy/editor/core/scan app/src/main/java/com/aymanelbanhawy/enterprisepdf/app/search app/src/main/java/com/aymanelbanhawy/enterprisepdf/app/scan && exit 1 || true
-          grep -RIn "TODO\|Placeholder\|Fake\|NoOp\|InMemory" editor-core/src/main/java/com/aymanelbanhawy/editor/core/workflow editor-core/src/main/java/com/aymanelbanhawy/editor/core/security editor-core/src/main/java/com/aymanelbanhawy/editor/core/forms editor-core/src/main/java/com/aymanelbanhawy/editor/core/connectors app/src/main/java/com/aymanelbanhawy/enterprisepdf/app/editor app/src/main/java/com/aymanelbanhawy/enterprisepdf/app/collaboration app/src/main/java/com/aymanelbanhawy/enterprisepdf/app/forms app/src/main/java/com/aymanelbanhawy/enterprisepdf/app/connectors && exit 1 || true
           grep -RIn "pageedits\\.json\|sidecar" ai-assistant/src/main app/src/main editor-core/src/main android-pdf-viewer/src/main && exit 1 || true
-      - name: Lint and unit tests
-        run: ./gradlew :app:validateReleaseReadiness :app:lintDevDebug :app:lintProdDebug :ai-assistant:lint :editor-core:lint :editor-core:test :ai-assistant:test :app:testProdDebugUnitTest :app:assembleProdDebug
+          grep -RIn "contentDescription\|semantics\|TalkBack\|theme\|colorScheme\|icon\|contrast\|reading mode" app/src/main app/src/androidTest app/src/test || true
+          grep -RIn "validateReleaseReadiness\|smoke\|benchmark\|migration" .github/workflows app build.gradle* scripts docs || true
+          git grep -nE "LEGACY_COMPATIBILITY_SUFFIX|pageedits\\.json|sidecar" -- editor-core/src/main/java/com/aymanelbanhawy/editor/core/write editor-core/src/main/java/com/aymanelbanhawy/editor/core/repository app/src/main android-pdf-viewer/src/main && exit 1 || true
+          git grep -nE "LEGACY_COMPATIBILITY_SUFFIX|pageedits\\.json|sidecar" -- editor-core/src/main/java/com/aymanelbanhawy/editor/core/migration && true
+      - name: Release readiness task
+        run: ./gradlew clean releaseReadinessEvidence
+      - name: Additional lint coverage
+        run: ./gradlew :app:lintDevDebug :ai-assistant:lint :editor-core:lint
       - name: Targeted compare export and protection tests
         run: ./gradlew :editor-core:test --tests "*DefaultWorkflowRepositoryTest" --tests "*SavedDocumentSecurityProcessorTest" --tests "*PdfWriteEnginePersistenceTest"
       - name: Targeted signature, request lifecycle, and template tests
@@ -32,6 +36,10 @@ jobs:
         run: ./gradlew :editor-core:test --tests "*DefaultConnectorRepositoryTest"
       - name: Targeted migration and upgrade safety tests
         run: ./gradlew :editor-core:test --tests "*DefaultCoreMigrationRepositoryTest" --tests "*PdfWriteEnginePersistenceTest" --tests "*AiProviderNormalizationTest"
+      - name: Targeted AI audio and voice comment tests
+        run: ./gradlew :ai-assistant:test --tests "*ProviderSelectionEngineTest" --tests "*ProviderRuntimeErrorHandlingTest" --tests "*MultiDocumentGroundingTest" --tests "*AssistantAudioStateTransitionsTest" :editor-core:test --tests "*DefaultCollaborationRepositorySyncTest"
+      - name: Screenshot and accessibility evidence build
+        run: ./gradlew :app:assembleProdDebugAndroidTest
       - name: Generate SBOM and license inventory
         run: ./gradlew :app:generateSbom :app:generateLicenseReport
       - name: Upload reports
@@ -42,7 +50,9 @@ jobs:
             app/build/reports/release/**
             app/build/reports/lint-results-*.html
             app/build/reports/lint-results-*.xml
+            app/build/reports/lint-results-*.sarif
             ai-assistant/build/reports/**
+            build/reports/problems/**
 
   instrumentation-and-benchmark:
     runs-on: macos-latest
@@ -55,36 +65,20 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Build prod debug APK and tests
         run: ./gradlew :app:assembleProdDebug :app:assembleProdDebugAndroidTest
-      - name: Run prod debug assistant and editor UI tests
+      - name: Run prod debug assistant, collaboration, search, snapshots, and editor UI tests
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
           arch: x86_64
           profile: pixel_7
-          script: ./gradlew :app:connectedProdDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.aymanelbanhawy.enterprisepdf.app.assistant.AssistantProviderSettingsTest,com.aymanelbanhawy.enterprisepdf.app.collaboration.CollaborationReviewFlowTest,com.aymanelbanhawy.enterprisepdf.app.scan.OcrScanImportFlowTest,com.aymanelbanhawy.enterprisepdf.app.editor.EditorScreenTest
-      - name: Run prod debug regression tests
+          script: ./gradlew :app:connectedProdDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.aymanelbanhawy.enterprisepdf.app.assistant.AssistantProviderSettingsTest,com.aymanelbanhawy.enterprisepdf.app.collaboration.CollaborationReviewFlowTest,com.aymanelbanhawy.enterprisepdf.app.scan.OcrScanImportFlowTest,com.aymanelbanhawy.enterprisepdf.app.visual.VisualSnapshotTest,com.aymanelbanhawy.enterprisepdf.app.editor.EditorScreenTest
+      - name: Run prod debug smoke and benchmark tests
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
           arch: x86_64
           profile: pixel_7
           script: ./gradlew :app:connectedProdDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.aymanelbanhawy.enterprisepdf.app.smoke.CriticalWorkflowSmokeTest,com.aymanelbanhawy.enterprisepdf.app.diagnostics.LargeDocumentOpenBenchmarkTest
-      - name: Build dev debug APK and tests
-        run: ./gradlew :app:assembleDevDebug :app:assembleDevDebugAndroidTest
-      - name: Run instrumentation smoke tests
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 35
-          arch: x86_64
-          profile: pixel_7
-          script: ./gradlew :app:connectedDevDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.aymanelbanhawy.enterprisepdf.app.smoke.CriticalWorkflowSmokeTest
-      - name: Run benchmark test
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 35
-          arch: x86_64
-          profile: pixel_7
-          script: ./gradlew :app:connectedDevDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.aymanelbanhawy.enterprisepdf.app.diagnostics.LargeDocumentOpenBenchmarkTest
 
   static-analysis:
     runs-on: ubuntu-latest
@@ -96,7 +90,7 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
-          sarif_file: app/build/reports/lint-results-devDebug.sarif
+          sarif_file: app/build/reports/lint-results-prodDebug.sarif
           category: android-lint
 
   release-artifact:
@@ -127,9 +121,3 @@ jobs:
           path: |
             app/build/outputs/apk/prod/release/*.apk
             app/build/outputs/bundle/prodRelease/*.aab
-
-
-
-
-
-

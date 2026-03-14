@@ -13,6 +13,8 @@ import com.aymanelbanhawy.editor.core.data.EditHistoryMetadataEntity
 import com.aymanelbanhawy.editor.core.data.RecentDocumentDao
 import com.aymanelbanhawy.editor.core.data.RecentDocumentEntity
 import com.aymanelbanhawy.editor.core.forms.DigitalSignatureService
+import com.aymanelbanhawy.editor.core.migration.FileLegacyEditCompatibilityBridge
+import com.aymanelbanhawy.editor.core.migration.LegacyEditCompatibilityBridge
 import com.aymanelbanhawy.editor.core.forms.FormDocumentModel
 import com.aymanelbanhawy.editor.core.forms.FormFieldModel
 import com.aymanelbanhawy.editor.core.forms.FormFieldOption
@@ -107,6 +109,7 @@ class DefaultDocumentRepository(
         classDiscriminator = "_type"
     },
     private val ocrSessionStore: OcrSessionStore = OcrSessionStore(json),
+    private val legacyEditCompatibilityBridge: LegacyEditCompatibilityBridge = FileLegacyEditCompatibilityBridge(json),
     private val digitalSignatureService: DigitalSignatureService? = null,
     private val securityRepository: SecurityRepository? = null,
     private val diagnosticsRepository: RuntimeDiagnosticsRepository? = null,
@@ -145,6 +148,7 @@ class DefaultDocumentRepository(
                 buildDocument(sessionId, request.displayName, request.password, DocumentSourceType.Memory, "memory://$sessionId/${request.displayName}", workingFile)
             }
         }
+        legacyEditCompatibilityBridge.upgradeIfNeeded(opened.documentRef)
         val editableState = pdfWriteEngine.load(opened.documentRef)
         val legacyAnnotations = loadLegacyAnnotationCompatibility(opened.documentRef)
         val document = securityProcessor.decorateOpenedDocument(
@@ -525,6 +529,8 @@ private data class LegacyAnnotationCompatibilityPayload(
     val annotations: List<AnnotationModel>,
     val updatedAtEpochMillis: Long,
 )
+
+
 
 
 

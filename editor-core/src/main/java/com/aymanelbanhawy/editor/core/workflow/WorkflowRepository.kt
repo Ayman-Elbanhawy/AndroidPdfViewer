@@ -42,6 +42,7 @@ class DefaultWorkflowRepository(
     private val ocrSessionStore: OcrSessionStore,
     private val documentRepository: DocumentRepository,
     private val scanImportService: ScanImportService,
+    private val conversionRuntime: DocumentConversionRuntime,
     private val json: Json,
 ) : WorkflowRepository {
 
@@ -51,6 +52,8 @@ class DefaultWorkflowRepository(
         ocrSessionStore = ocrSessionStore,
         documentRepository = documentRepository,
         scanImportService = scanImportService,
+        conversionRuntime = conversionRuntime,
+        json = json,
     )
 
     override suspend fun compareReports(documentKey: String): List<CompareReportModel> {
@@ -96,6 +99,11 @@ class DefaultWorkflowRepository(
         )
     }
 
+    override suspend fun exportCompareReport(reportId: String, destination: File, format: CompareReportExportFormat): ExportArtifactModel {
+        val report = requireNotNull(compareReportDao.byId(reportId)?.toModel(json)) { "Compare report not found." }
+        return fileWorkflowService.exportCompareReport(report, destination, format)
+    }
+
     override suspend fun exportDocumentAsText(document: DocumentModel, destination: File): ExportBundleResult {
         return fileWorkflowService.exportDocumentAsText(document, destination)
     }
@@ -104,12 +112,24 @@ class DefaultWorkflowRepository(
         return fileWorkflowService.exportDocumentAsMarkdown(document, destination)
     }
 
+    override suspend fun exportDocumentAsWord(document: DocumentModel, destination: File): ExportBundleResult {
+        return fileWorkflowService.exportDocumentAsWord(document, destination)
+    }
+
     override suspend fun exportDocumentAsImages(document: DocumentModel, outputDirectory: File, format: ExportImageFormat): ExportBundleResult {
         return fileWorkflowService.exportDocumentAsImages(document, outputDirectory, format)
     }
 
     override suspend fun createPdfFromImages(imageFiles: List<File>, displayName: String): CreatedPdfResult {
         return fileWorkflowService.createPdfFromImages(imageFiles, displayName)
+    }
+
+    override suspend fun importSourceAsPdf(source: File, displayName: String): ImportedPdfResult {
+        return fileWorkflowService.importSourceAsPdf(source, displayName)
+    }
+
+    override suspend fun mergeSourcesAsPdf(sources: List<File>, displayName: String): ImportedPdfResult {
+        return fileWorkflowService.mergeSourcesAsPdf(sources, displayName)
     }
 
     override suspend fun optimizeDocument(document: DocumentModel, destination: File, preset: PdfOptimizationPreset): OptimizationResult {
@@ -578,6 +598,13 @@ private fun ActivityEventModel.toEntity(json: Json): ActivityEventEntity = Activ
     serverUpdatedAtEpochMillis = serverUpdatedAtEpochMillis,
     lastSyncedAtEpochMillis = lastSyncedAtEpochMillis,
 )
+
+
+
+
+
+
+
 
 
 

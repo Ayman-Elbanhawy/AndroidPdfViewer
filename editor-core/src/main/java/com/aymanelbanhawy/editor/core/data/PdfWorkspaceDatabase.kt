@@ -34,7 +34,7 @@ import androidx.room.RoomDatabase
         FormTemplateEntity::class,
         WorkflowRequestEntity::class,
     ],
-    version = 15,
+    version = 16,
     exportSchema = false,
 )
 abstract class PdfWorkspaceDatabase : RoomDatabase() {
@@ -67,4 +67,5 @@ abstract class PdfWorkspaceDatabase : RoomDatabase() {
     abstract fun formTemplateDao(): FormTemplateDao
     abstract fun workflowRequestDao(): WorkflowRequestDao
 }
+
 

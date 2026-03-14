@@ -14,6 +14,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import com.aymanelbanhawy.aiassistant.core.AiProviderDraft
 import com.aymanelbanhawy.aiassistant.core.AiProviderRuntimeState
+import com.aymanelbanhawy.aiassistant.core.AssistantAudioUiState
 import com.aymanelbanhawy.aiassistant.core.AssistantAvailability
 import com.aymanelbanhawy.aiassistant.core.AssistantPrivacyMode
 import com.aymanelbanhawy.aiassistant.core.AssistantSettings
@@ -29,10 +30,14 @@ class AssistantProviderSettingsTest {
     val composeRule = createComposeRule()
 
     @Test
-    fun providerSettings_andAskFlow_areReachable() {
+    fun providerSettings_voiceControls_andAskFlow_areReachable() {
         var state by mutableStateOf(
             AssistantUiState(
-                settings = AssistantSettings(privacyMode = AssistantPrivacyMode.LocalOnly),
+                settings = AssistantSettings(
+                    privacyMode = AssistantPrivacyMode.LocalOnly,
+                    spokenResponsesEnabled = false,
+                    voicePromptCaptureEnabled = true,
+                ),
                 availability = AssistantAvailability(enabled = true),
                 providerRuntime = AiProviderRuntimeState(
                     draft = AiProviderDraft(
@@ -42,10 +47,14 @@ class AssistantProviderSettingsTest {
                     ),
                 ),
                 workspace = AssistantWorkspaceState(),
+                audio = AssistantAudioUiState(enabled = true),
             ),
         )
         var savedProvider = false
         var askTriggered = false
+        var voiceCaptureTriggered = false
+        var readPageTriggered = false
+        var audioToggleTriggered = false
 
         composeRule.setContent {
             MaterialTheme {
@@ -72,6 +81,16 @@ class AssistantProviderSettingsTest {
                     onTestConnection = {},
                     onCancelRequest = {},
                     onOpenCitation = {},
+                    onStartVoicePromptCapture = { voiceCaptureTriggered = true },
+                    onStopVoicePromptCapture = {},
+                    onCancelVoicePromptCapture = {},
+                    onReadCurrentPageAloud = { readPageTriggered = true },
+                    onReadSelectionAloud = {},
+                    onStopReadAloud = {},
+                    onAssistantAudioEnabledChanged = {
+                        audioToggleTriggered = true
+                        state = state.copy(settings = state.settings.copy(spokenResponsesEnabled = it))
+                    },
                 )
             }
         }
@@ -80,11 +99,16 @@ class AssistantProviderSettingsTest {
         composeRule.onNodeWithText("Provider").assertIsDisplayed()
         composeRule.onNode(hasText("http://10.0.2.2:11434") and hasSetTextAction()).performTextInput("/v1")
         composeRule.onNodeWithContentDescription("Save Provider").performClick()
+        composeRule.onNodeWithText("Audio Off").performClick()
+        composeRule.onNodeWithContentDescription("Capture Voice Prompt").performClick()
+        composeRule.onNodeWithContentDescription("Read Current Page").performClick()
         composeRule.onNode(hasSetTextAction() and hasText("Ask about this PDF or document set")).performTextInput("Summarize the contract obligations")
         composeRule.onNodeWithContentDescription("Ask PDF").performClick()
 
         assertThat(savedProvider).isTrue()
+        assertThat(audioToggleTriggered).isTrue()
+        assertThat(voiceCaptureTriggered).isTrue()
+        assertThat(readPageTriggered).isTrue()
         assertThat(askTriggered).isTrue()
     }
 }
-

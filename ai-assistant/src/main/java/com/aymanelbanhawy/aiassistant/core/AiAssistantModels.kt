@@ -22,6 +22,7 @@ enum class AssistantTaskType {
     SummarizeWorkspace,
     CrossDocumentSearch,
     CompareAndSummarize,
+    SuggestNextActions,
 }
 
 @Serializable
@@ -224,6 +225,9 @@ data class AssistantSettings(
     val redactBeforeCloud: Boolean = true,
     val allowSuggestions: Boolean = true,
     val workspaceScope: WorkspaceDocumentScope = WorkspaceDocumentScope.PinnedDocumentsOnly,
+    val spokenResponsesEnabled: Boolean = false,
+    val readAloudEnabled: Boolean = true,
+    val voicePromptCaptureEnabled: Boolean = true,
 )
 
 @Serializable
@@ -287,6 +291,7 @@ data class AssistantUiState(
     val availability: AssistantAvailability = AssistantAvailability(enabled = false, reason = "AI is disabled"),
     val providerRuntime: AiProviderRuntimeState = AiProviderRuntimeState(),
     val workspace: AssistantWorkspaceState = AssistantWorkspaceState(),
+    val audio: AssistantAudioUiState = AssistantAudioUiState(),
     val prompt: String = "",
     val isWorking: Boolean = false,
     val latestResult: AssistantResult? = null,
@@ -462,3 +467,4 @@ private fun String.isLegacySampleEndpoint(prefix: String, suffix: String): Boole
 }
 
 const val DEFAULT_PROVIDER_ID: String = "ollama-local"
+

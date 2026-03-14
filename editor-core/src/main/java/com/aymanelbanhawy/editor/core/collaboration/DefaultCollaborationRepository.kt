@@ -1,4 +1,4 @@
-﻿
+
 package com.aymanelbanhawy.editor.core.collaboration
 
 import android.content.Context
@@ -97,7 +97,7 @@ class DefaultCollaborationRepository(
             .filter(filter::matches)
     }
 
-    override suspend fun addReviewThread(document: DocumentModel, title: String, message: String, pageIndex: Int?, anchorBounds: NormalizedRect?): ReviewThreadModel {
+    override suspend fun addReviewThread(document: DocumentModel, title: String, message: String, pageIndex: Int?, anchorBounds: NormalizedRect?, voiceAttachment: VoiceCommentAttachmentModel?): ReviewThreadModel {
         val now = System.currentTimeMillis()
         val actor = actorName(enterpriseAdminRepository.loadState())
         val threadId = UUID.randomUUID().toString()
@@ -109,6 +109,7 @@ class DefaultCollaborationRepository(
             createdAtEpochMillis = now,
             modifiedAtEpochMillis = now,
             mentions = parseMentions(message),
+            voiceAttachment = voiceAttachment,
         )
         val thread = ReviewThreadModel(
             id = threadId,
@@ -152,7 +153,7 @@ class DefaultCollaborationRepository(
         return thread
     }
 
-    override suspend fun addReviewReply(threadId: String, author: String, message: String): ReviewThreadModel {
+    override suspend fun addReviewReply(threadId: String, author: String, message: String, voiceAttachment: VoiceCommentAttachmentModel?): ReviewThreadModel {
         val threadEntity = requireNotNull(reviewThreadDao.thread(threadId))
         val existing = threadEntity.toModel(reviewCommentDao.forThread(threadId).map { it.toModel() })
         val now = System.currentTimeMillis()
@@ -164,6 +165,7 @@ class DefaultCollaborationRepository(
             createdAtEpochMillis = now,
             modifiedAtEpochMillis = now,
             mentions = parseMentions(message),
+            voiceAttachment = voiceAttachment,
         )
         val updatedThread = existing.copy(
             modifiedAtEpochMillis = now,
@@ -646,6 +648,7 @@ private fun ReviewCommentModel.toEntity(json: Json): ReviewCommentEntity = Revie
     createdAtEpochMillis = createdAtEpochMillis,
     modifiedAtEpochMillis = modifiedAtEpochMillis,
     mentionsJson = json.encodeToString(ListSerializer(MentionModel.serializer()), mentions),
+    voiceAttachmentJson = voiceAttachment?.let { json.encodeToString(VoiceCommentAttachmentModel.serializer(), it) },
 )
 
 private fun ReviewCommentEntity.toModel(): ReviewCommentModel = ReviewCommentModel(
@@ -656,6 +659,7 @@ private fun ReviewCommentEntity.toModel(): ReviewCommentModel = ReviewCommentMod
     createdAtEpochMillis = createdAtEpochMillis,
     modifiedAtEpochMillis = modifiedAtEpochMillis,
     mentions = Json { ignoreUnknownKeys = true }.decodeFromString(ListSerializer(MentionModel.serializer()), mentionsJson),
+    voiceAttachment = voiceAttachmentJson?.let { Json { ignoreUnknownKeys = true }.decodeFromString(VoiceCommentAttachmentModel.serializer(), it) },
 )
 
 private fun VersionSnapshotModel.toEntity(json: Json): VersionSnapshotEntity = VersionSnapshotEntity(
@@ -727,4 +731,6 @@ private fun SyncQueueEntity.toModel(): SyncOperationModel = SyncOperationModel(
     conflictPayloadJson = conflictPayloadJson,
     tombstone = tombstone,
 )
+
+
 

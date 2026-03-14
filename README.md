@@ -2,7 +2,7 @@
 
 This fork keeps the original Pdfium-based Android PDF renderer as a reusable module and layers a Kotlin, AndroidX, Material 3, Compose-based enterprise document platform on top of it.
 
-The repo is no longer only a viewer widget project. It now contains a modular mobile PDF editor and workflow application with editing, OCR, AI, collaboration, connectors, enterprise policy, diagnostics, migration, and release-engineering support.
+The repo is no longer only a viewer widget project. It now contains a modular mobile PDF editor and workflow application with editing, OCR, AI, collaboration, connectors, enterprise policy, diagnostics, migration, accessibility, and release-engineering support.
 
 ## Modules
 
@@ -13,9 +13,9 @@ The repo is no longer only a viewer widget project. It now contains a modular mo
 - `:editor-core`
   - Document sessions, write engine, OCR, search, Room persistence, WorkManager jobs, migrations, diagnostics, security, collaboration, connectors, workflows, and enterprise services
 - `:ai-assistant`
-  - Real AI provider runtime, secure provider configuration, grounded citations, multi-document workspace, and enterprise policy-aware orchestration
+  - Real AI provider runtime, secure provider configuration, grounded citations, multi-document workspace, audio/voice state, and enterprise policy-aware orchestration
 - `:app`
-  - Compose application shell, editor workspaces, admin/settings UI, diagnostics UI, connector UI, AI UI, collaboration UI, and release configuration
+  - Compose application shell, editor workspaces, admin/settings UI, diagnostics UI, connector UI, AI UI, collaboration UI, premium themes, and release configuration
 
 ## Product Areas
 
@@ -23,14 +23,16 @@ The repo is no longer only a viewer widget project. It now contains a modular mo
 - Session-based editing through `EditorSession`
 - Command-based undo and redo
 - Direct PDF mutation as the primary persistence model
-- Legacy `.pageedits.json` migration support for backward compatibility
+- Legacy `.pageedits.json` migration support isolated to compatibility and migration code
 - Save, save-as, export copy, rollback, checksum verification, transaction logging, and file locking
 - Text edits, image edits, annotations, page reorder, page insert/delete/duplicate/extract/rotate, blank-page creation, and structural page persistence
+- Write-through protected output for password protection, permission flags, watermarking, metadata scrub, and irreversible redaction apply
 
 ### Annotation and review
 - Highlight, underline, strikeout, freehand ink, rectangle, ellipse, arrow, line, sticky note, and text box annotations
 - Selection, recolor, resize, move, duplicate, and delete operations
 - Review threads, replies, mentions, resolve/reopen, activity feed, share links, version-linked review state, and offline sync queue support
+- Voice comments with attachment persistence and remote sync support
 
 ### Organize pages
 - Page thumbnail generation and caching
@@ -58,12 +60,15 @@ The repo is no longer only a viewer widget project. It now contains a modular mo
 - Searchable PDF generation from imported scans and images
 - OCR settings, job lifecycle, resumable persistence, diagnostics, and progress surfaces
 - OCR text integrated into search, copy text, and AI grounding
-- Search, bookmarks/outline, recent searches, and text extraction
+- Search, bookmarks/outline, recent searches, text extraction, and scan import workflows
 
-### AI assistant
+### AI assistant and audio
 - Ask PDF, summarize document, summarize page, explain selection, extract action items, suggest next actions, and semantic search
-- Grounded citations to page and page-region coordinates
+- Grounded citations to exact document, page, and page-region coordinates
 - Multi-document AI workspace with pinned files, saved document sets, conversation history, and workspace summaries
+- Hands-free voice prompt capture with interruption and cancel support
+- Read-aloud for pages and selections with playback controls and visible progress state
+- Voice comments for review workflows with recording, playback, persistence, and sync support
 - Real provider runtime for:
   - local Ollama-compatible endpoints
   - remote Ollama-compatible endpoints
@@ -77,6 +82,7 @@ The repo is no longer only a viewer widget project. It now contains a modular mo
 - Compare workflow with page-level change markers and reviewable change summaries
 - Share links, comments, replies, activity events, and review snapshots
 - Request-sign workflow, form request workflow, lifecycle tracking, reminder events, and activity integration
+- File workflows for text/markdown/Word/image export, import-to-PDF, merge, optimize, and compare-report export
 
 ### Enterprise platform hooks
 - Personal mode and enterprise mode session architecture
@@ -92,11 +98,18 @@ The repo is no longer only a viewer widget project. It now contains a modular mo
 - Conflict-aware remote metadata handling with etag/checksum, modified time, and version id
 - Secure temp/cache lifecycle and DLP-aware destination filtering
 
+### Premium mobile UI and accessibility
+- Premium Compose design system with upgraded light and dark themes
+- Stronger icon contrast, larger touch targets, clearer hierarchy, and consistent icon sizing
+- Reading mode controls for text size, line spacing, character spacing, and margins with graceful fallback when semantic reflow is limited
+- Accessibility improvements across major flows, including pane titles, heading semantics, content descriptions, larger interaction surfaces, and stronger visual contrast
+- Visual snapshot coverage for key assistant and search surfaces in light and dark themes
+
 ### Diagnostics, recovery, and upgrade safety
 - Runtime diagnostics snapshot with provider health, sync backlog, OCR queue, connector state, recent failures, and migration reports
 - Startup repair for interrupted saves, interrupted sync, interrupted OCR, corrupted drafts, and stale local artifacts
 - Versioned migration framework for Room, drafts, AI settings, connector/session state, OCR/search data, and older mutation/session formats
-- Benchmark, smoke, regression, and migration-oriented test coverage
+- Benchmark, smoke, regression, migration-oriented, and snapshot-oriented test coverage
 
 ## Build Variants
 
@@ -115,6 +128,8 @@ Recommended local commands:
 .\gradlew.bat :ai-assistant:test
 .\gradlew.bat :app:assembleDevDebug
 .\gradlew.bat :app:assembleProdDebug
+.\gradlew.bat :app:validateReleaseReadiness
+.\gradlew.bat :app:testProdDebugUnitTest
 ```
 
 ## Release Gates and CI
@@ -128,7 +143,7 @@ Protected patterns include:
 - `Placeholder*`
 - `TODO`
 - `example.invalid`
-- sidecar-primary save-path references in production code
+- prohibited legacy save-path references in production code
 
 CI workflows live in `.github/workflows/` and now cover:
 - grep-based release gates
@@ -136,8 +151,8 @@ CI workflows live in `.github/workflows/` and now cover:
 - `ai-assistant` lint and unit tests
 - app prod lint/build/unit gates
 - targeted migration and upgrade-safety tests
-- targeted OCR, collaboration, compare/export/protection, connector, forms/signature, and workflow regression tests
-- instrumentation and benchmark workflows for core enterprise flows
+- targeted OCR, collaboration, compare/export/protection, connector, forms/signature, workflow, and AI/audio regression tests
+- instrumentation, snapshot, smoke, and benchmark workflows for core enterprise flows
 - SBOM and license reporting
 - signed prod artifact generation hooks
 
@@ -149,8 +164,36 @@ Useful local commands:
 .\gradlew.bat :ai-assistant:lint :ai-assistant:test
 .\gradlew.bat :app:lintProdDebug :app:assembleProdDebug
 .\gradlew.bat :app:testProdDebugUnitTest
+.\gradlew.bat :app:connectedProdDebugAndroidTest
+.\gradlew.bat releaseReadinessEvidence
 powershell -ExecutionPolicy Bypass -File .\scripts\run-smoke-tests.ps1
 ```
+
+## Release Evidence and Current Verification
+
+The repo now includes a single root release evidence task:
+
+```powershell
+.\gradlew.bat releaseReadinessEvidence
+```
+
+That release evidence pass aggregates:
+- repo-wide prohibited-pattern grep gates
+- `:app:validateReleaseReadiness`
+- `:editor-core:test`
+- `:ai-assistant:test`
+- `:app:lintProdDebug`
+- `:app:assembleProdDebug`
+- `:app:testProdDebugUnitTest`
+- `:app:assembleProdDebugAndroidTest`
+
+Current verification status from the latest local pass:
+- repo-wide prohibited-pattern grep gates pass
+- `:app:validateReleaseReadiness` passes
+- `:editor-core:test` passes
+- `:ai-assistant:test` passes
+- `:app:lintProdDebug :app:assembleProdDebug :app:testProdDebugUnitTest` passes
+- `:app:connectedProdDebugAndroidTest` still exposes a small set of emulator/framework issues in instrumentation and benchmark tests, so connected coverage is not yet fully green on this machine
 
 ## Managed Configuration
 

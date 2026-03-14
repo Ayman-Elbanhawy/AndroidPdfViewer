@@ -12,7 +12,7 @@ fun createEditorCoreDatabase(context: Context): PdfWorkspaceDatabase {
         PdfWorkspaceDatabase::class.java,
         DATABASE_NAME,
     )
-        .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
+        .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16)
         .build()
 }
 
@@ -145,5 +145,12 @@ val MIGRATION_14_15 = object : androidx.room.migration.Migration(14, 15) {
         database.execSQL("ALTER TABLE connector_transfer_jobs ADD COLUMN remote_version_id TEXT")
         database.execSQL("ALTER TABLE connector_transfer_jobs ADD COLUMN conflict_strategy TEXT NOT NULL DEFAULT 'Fail'")
         database.execSQL("ALTER TABLE connector_transfer_jobs ADD COLUMN cache_expires_at INTEGER")
+    }
+}
+
+
+val MIGRATION_15_16 = object : androidx.room.migration.Migration(15, 16) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL("ALTER TABLE review_comments ADD COLUMN voiceAttachmentJson TEXT")
     }
 }

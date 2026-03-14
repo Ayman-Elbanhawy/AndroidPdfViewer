@@ -128,6 +128,8 @@ data class AdminPolicyModel(
     val aiHistoryRetentionDays: Int = 30,
     val aiDocumentScope: AiDocumentScopePolicy = AiDocumentScopePolicy.PinnedDocumentsOnly,
     val aiEnabled: Boolean = false,
+    val audioFeaturesEnabled: Boolean = true,
+    val voiceCommentRetentionDays: Int = 30,
     val allowCloudAiProviders: Boolean = false,
     val allowCollaborationSync: Boolean = true,
     val allowExternalSharing: Boolean = true,
@@ -297,4 +299,10 @@ data class TelemetryBatchUploadResponse(
     val rejectedIds: List<String> = emptyList(),
     val serverTimestampEpochMillis: Long,
 )
+
+
+
+
+
+
 

@@ -2,7 +2,6 @@ package com.aymanelbanhawy.editor.core.collaboration
 
 import android.content.Context
 import android.content.ContextWrapper
-import java.io.File
 import com.aymanelbanhawy.editor.core.data.ActivityEventDao
 import com.aymanelbanhawy.editor.core.data.ActivityEventEntity
 import com.aymanelbanhawy.editor.core.data.ReviewCommentDao
@@ -33,6 +32,7 @@ import com.aymanelbanhawy.editor.core.model.DocumentSourceType
 import com.aymanelbanhawy.editor.core.model.PageModel
 import com.aymanelbanhawy.editor.core.model.PdfDocumentRef
 import com.google.common.truth.Truth.assertThat
+import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -88,7 +88,8 @@ class DefaultCollaborationRepositorySyncTest {
         val threads = repository.reviewThreads(document().documentRef.sourceKey)
 
         assertThat(firstPass.conflictCount).isEqualTo(1)
-        assertThat(threads.single().comments.map { it.message }).contains("Remote reply")    }
+        assertThat(threads.single().comments.map { it.message }).contains("Remote reply")
+    }
 
     @Test
     fun processSyncRollsBackPermanentFailure() = runTest {
@@ -113,6 +114,36 @@ class DefaultCollaborationRepositorySyncTest {
 
         assertThat(summary.failedCount).isAtLeast(1)
         assertThat(pending.any { it.state == SyncOperationState.Failed }).isTrue()
+    }
+
+    @Test
+    fun processSyncPersistsVoiceCommentAttachments() = runTest {
+        val remote = RecordingRemoteDataSource(json)
+        val repository = repository(remote)
+        val attachment = VoiceCommentAttachmentModel(
+            id = UUID.randomUUID().toString(),
+            localFilePath = "/tmp/voice-comment.m4a",
+            mimeType = "audio/mp4",
+            durationMillis = 1450L,
+            createdAtEpochMillis = System.currentTimeMillis(),
+            transcript = "Please confirm clause five.",
+        )
+
+        val created = repository.addReviewThread(
+            document = document(),
+            title = "Voice review",
+            message = "See attached note",
+            pageIndex = 0,
+            anchorBounds = null,
+            voiceAttachment = attachment,
+        )
+        val summary = repository.processSync(document().documentRef.sourceKey)
+        val stored = repository.reviewThreads(document().documentRef.sourceKey, ReviewFilterModel()).single()
+
+        assertThat(summary.completedCount).isAtLeast(1)
+        assertThat(created.comments.single().voiceAttachment).isEqualTo(attachment)
+        assertThat(stored.comments.single().voiceAttachment).isEqualTo(attachment)
+        assertThat(remote.threadsFor(document().documentRef.sourceKey).single().comments.single().voiceAttachment).isEqualTo(attachment)
     }
 
     private fun repository(remote: CollaborationRemoteDataSource): DefaultCollaborationRepository {
@@ -203,6 +234,7 @@ private open class RecordingRemoteDataSource(
     }
 
     fun shareLinksFor(documentKey: String): List<ShareLinkModel> = shareLinks.values.filter { it.documentKey == documentKey }
+    fun threadsFor(documentKey: String): List<ReviewThreadModel> = threads.values.filter { it.documentKey == documentKey }
     fun activityFor(documentKey: String): List<ActivityEventModel> = activity.values.filter { it.documentKey == documentKey }
 }
 
@@ -324,25 +356,3 @@ private class FakeSyncQueueDao : SyncQueueDao {
     override suspend fun eligible(documentKey: String, nowEpochMillis: Long): List<SyncQueueEntity> = items.values.filter { it.documentKey == documentKey && it.state in listOf(SyncOperationState.Pending.name, SyncOperationState.Failed.name, SyncOperationState.Conflict.name) && it.nextAttemptAtEpochMillis <= nowEpochMillis }
     override suspend fun eligibleAll(nowEpochMillis: Long): List<SyncQueueEntity> = items.values.filter { it.state in listOf(SyncOperationState.Pending.name, SyncOperationState.Failed.name, SyncOperationState.Conflict.name) && it.nextAttemptAtEpochMillis <= nowEpochMillis }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
