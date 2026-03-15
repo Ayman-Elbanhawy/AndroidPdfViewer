@@ -3,6 +3,7 @@ package com.aymanelbanhawy.editor.core.search
 import com.aymanelbanhawy.editor.core.model.DocumentModel
 import com.aymanelbanhawy.editor.core.model.NormalizedRect
 import com.aymanelbanhawy.editor.core.ocr.OcrSessionStore
+import com.aymanelbanhawy.editor.core.ocr.OcrSettingsModel
 import com.aymanelbanhawy.editor.core.runtime.RuntimeDiagnosticsRepository
 import com.aymanelbanhawy.editor.core.runtime.RuntimeEventCategory
 import com.aymanelbanhawy.editor.core.runtime.RuntimeLogLevel
@@ -14,13 +15,14 @@ class DefaultDocumentSearchService(
     private val extractionService: TextExtractionService,
     private val ocrSessionStore: OcrSessionStore,
     private val diagnosticsRepository: RuntimeDiagnosticsRepository? = null,
+    private val embeddedTextRecoveryRuntime: EmbeddedTextRecoveryRuntime? = null,
 ) : DocumentSearchService {
 
     override suspend fun ensureIndex(document: DocumentModel, forceRefresh: Boolean): List<IndexedPageContent> {
         val existing = if (forceRefresh) emptyList() else store.indexedPages(document.documentRef.sourceKey)
         if (!forceRefresh && existing.size == document.pageCount && existing.isNotEmpty()) {
             applyPersistedOcr(document)
-            return store.indexedPages(document.documentRef.sourceKey)
+            return recoverSuspiciousPages(document)
         }
         val startedAt = System.currentTimeMillis()
         store.clearDocument(document.documentRef.sourceKey)
@@ -33,6 +35,7 @@ class DefaultDocumentSearchService(
             else -> store.saveEmbeddedIndex(document.documentRef.sourceKey, extractor.extract(document.documentRef))
         }
         applyPersistedOcr(document)
+        val indexedPages = recoverSuspiciousPages(document)
         diagnosticsRepository?.recordBreadcrumb(
             category = RuntimeEventCategory.Indexing,
             level = RuntimeLogLevel.Info,
@@ -40,7 +43,7 @@ class DefaultDocumentSearchService(
             message = "Indexed ${document.pageCount} pages in ${System.currentTimeMillis() - startedAt}ms.",
             metadata = mapOf("document" to document.documentRef.displayName),
         )
-        return store.indexedPages(document.documentRef.sourceKey)
+        return indexedPages
     }
 
     override suspend fun search(document: DocumentModel, query: String): SearchResultSet {
@@ -106,6 +109,54 @@ class DefaultDocumentSearchService(
             ?.forEach { page ->
                 store.saveOcrIndex(document.documentRef.sourceKey, page.pageIndex, page.text, page.flattenedSearchBlocks())
             }
+    }
+
+    private suspend fun recoverSuspiciousPages(document: DocumentModel): List<IndexedPageContent> {
+        val indexedPages = store.indexedPages(document.documentRef.sourceKey)
+        val recoveryRuntime = embeddedTextRecoveryRuntime ?: return indexedPages
+        val suspiciousPages = indexedPages.filter { page ->
+            page.source != SearchContentSource.Ocr && EmbeddedTextQualityHeuristics.analyze(page.pageText, page.blocks).looksGarbled
+        }
+        if (suspiciousPages.isEmpty()) return indexedPages
+        diagnosticsRepository?.recordBreadcrumb(
+            category = RuntimeEventCategory.Indexing,
+            level = RuntimeLogLevel.Warn,
+            eventName = "search_embedded_text_suspicious",
+            message = "Detected ${suspiciousPages.size} suspicious embedded-text pages. Attempting OCR recovery.",
+            metadata = mapOf(
+                "document" to document.documentRef.displayName,
+                "pages" to suspiciousPages.joinToString(separator = ",") { (it.pageIndex + 1).toString() },
+            ),
+        )
+        val recoveredPages = runCatching {
+            recoveryRuntime.recover(document.documentRef, suspiciousPages)
+        }.getOrElse { error ->
+            diagnosticsRepository?.recordBreadcrumb(
+                category = RuntimeEventCategory.Indexing,
+                level = RuntimeLogLevel.Warn,
+                eventName = "search_embedded_text_recovery_failed",
+                message = error.message ?: "Failed to recover suspicious embedded text with OCR.",
+                metadata = mapOf("document" to document.documentRef.displayName),
+            )
+            emptyList()
+        }
+        if (recoveredPages.isEmpty()) return indexedPages
+        recoveredPages.forEach { recovered ->
+            val page = recovered.page
+            store.saveOcrIndex(document.documentRef.sourceKey, page.pageIndex, page.text, page.flattenedSearchBlocks())
+            ocrSessionStore.persistPage(document.documentRef.sourceKey, OcrSettingsModel(), page)
+        }
+        diagnosticsRepository?.recordBreadcrumb(
+            category = RuntimeEventCategory.Indexing,
+            level = RuntimeLogLevel.Info,
+            eventName = "search_embedded_text_recovered",
+            message = "Recovered ${recoveredPages.size} suspicious pages with OCR for AI/search grounding.",
+            metadata = mapOf(
+                "document" to document.documentRef.displayName,
+                "strategies" to recoveredPages.joinToString(separator = ",") { it.strategy },
+            ),
+        )
+        return store.indexedPages(document.documentRef.sourceKey)
     }
 
     private fun preview(text: String, query: String): String {

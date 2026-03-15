@@ -98,8 +98,9 @@ class EnterpriseAdminRepositoryRuntimeTest {
         val entitlements = repository.resolveEntitlements(updated)
 
         assertThat(updated.adminPolicy.restrictExport).isTrue()
+        assertThat(updated.adminPolicy.aiEnabled).isFalse()
         assertThat(updated.policySync.policyVersion).isEqualTo("policy-v2")
-        assertThat(entitlements.features).doesNotContain(FeatureFlag.Ai)
+        assertThat(entitlements.features).contains(FeatureFlag.Ai)
     }
 
     @Test
@@ -131,6 +132,48 @@ class EnterpriseAdminRepositoryRuntimeTest {
         assertThat(pending.single().uploadState).isEqualTo(TelemetryUploadState.Uploaded)
     }
 
+    @Test
+    fun saveState_persistsCustomizedPlanAndAiPolicyAcrossRepositoryRestart() = runBlocking {
+        val customized = EnterpriseAdminStateModel(
+            authSession = AuthSessionModel(
+                mode = AuthenticationMode.Personal,
+                provider = AuthenticationProvider.Local,
+                status = AuthSessionStatus.Active,
+                isSignedIn = true,
+                displayName = "Ayman",
+            ),
+            plan = LicensePlan.Premium,
+            adminPolicy = AdminPolicyModel(
+                aiEnabled = true,
+                allowCloudAiProviders = true,
+                allowExternalSharing = true,
+            ),
+            privacySettings = PrivacySettingsModel(localOnlyMode = false),
+        )
+        repository.saveState(customized)
+
+        val restartedRepository = DefaultEnterpriseAdminRepository(
+            context = context,
+            settingsDao = database.enterpriseSettingsDao(),
+            telemetryDao = database.telemetryEventDao(),
+            credentialStore = EnterpriseCredentialStore(
+                context = context,
+                json = json,
+                cipher = TestSecureFileCipher(),
+            ),
+            remoteRegistry = object : EnterpriseRemoteRegistry(context, json) {
+                override fun select(tenant: TenantConfigurationModel): EnterpriseRemoteDataSource = remoteDataSource
+            },
+            json = json,
+        )
+
+        val restored = restartedRepository.loadState()
+        val entitlements = restartedRepository.resolveEntitlements(restored)
+
+        assertThat(restored.plan).isEqualTo(LicensePlan.Premium)
+        assertThat(restored.adminPolicy.aiEnabled).isTrue()
+        assertThat(entitlements.features).contains(FeatureFlag.Ai)
+    }
     private class TestEnterpriseRemoteDataSource : EnterpriseRemoteDataSource {
         var refreshCalls: Int = 0
         var failPolicySync: Boolean = false
@@ -232,3 +275,4 @@ class EnterpriseAdminRepositoryRuntimeTest {
         override fun decryptFromFile(source: File): ByteArray = source.readBytes()
     }
 }
+

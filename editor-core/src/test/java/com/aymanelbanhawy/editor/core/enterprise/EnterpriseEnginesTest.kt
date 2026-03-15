@@ -13,8 +13,18 @@ class EnterpriseEnginesTest {
 
         assertThat(resolved.features).contains(FeatureFlag.Sign)
         assertThat(resolved.features).contains(FeatureFlag.Security)
+        assertThat(resolved.features).contains(FeatureFlag.Ai)
         assertThat(resolved.features).doesNotContain(FeatureFlag.AdminConsole)
-        assertThat(resolved.features).doesNotContain(FeatureFlag.Ai)
+    }
+
+    @Test
+    fun premiumPlan_withAiDisabledPolicy_keepsEntitlementForUiGating() {
+        val resolved = EntitlementEngine.resolve(
+            plan = LicensePlan.Premium,
+            policy = AdminPolicyModel(aiEnabled = false, allowedCloudConnectors = listOf(CloudConnector.LocalFiles)),
+        )
+
+        assertThat(resolved.features).contains(FeatureFlag.Ai)
     }
 
     @Test

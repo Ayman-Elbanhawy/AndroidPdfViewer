@@ -18,6 +18,7 @@ import com.aymanelbanhawy.editor.core.ocr.OcrTextBlockModel
 import com.aymanelbanhawy.editor.core.ocr.OcrTextElementModel
 import com.aymanelbanhawy.editor.core.ocr.OcrTextLineModel
 import com.google.common.truth.Truth.assertThat
+import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
@@ -29,6 +30,7 @@ class DefaultDocumentSearchServiceTest {
 
     @Test
     fun searchFindsHitsAndStoresRecentQueries() = runTest {
+        val document = document("search")
         val searchIndexDao = FakeSearchIndexDao()
         val recentSearchDao = FakeRecentSearchDao()
         val store = RoomSearchIndexStore(searchIndexDao, recentSearchDao, json)
@@ -48,15 +50,16 @@ class DefaultDocumentSearchServiceTest {
             ocrSessionStore = OcrSessionStore(json),
         )
 
-        val result = service.search(document(), "service")
+        val result = service.search(document, "service")
 
         assertThat(result.hits).hasSize(1)
         assertThat(result.hits.first().pageIndex).isEqualTo(0)
-        assertThat(service.recentSearches(document().documentRef.sourceKey)).contains("service")
+        assertThat(service.recentSearches(document.documentRef.sourceKey)).contains("service")
     }
 
     @Test
     fun ensureIndexUsesCachedPagesWhenCountMatches() = runTest {
+        val document = document("cached")
         val extractionService = FakeTextExtractionService(
             listOf(IndexedPageContent(0, "Page one", listOf(ExtractedTextBlock(0, "Page one", bounds(0.1f, 0.1f, 0.3f, 0.2f))))),
         )
@@ -66,14 +69,15 @@ class DefaultDocumentSearchServiceTest {
             ocrSessionStore = OcrSessionStore(json),
         )
 
-        service.ensureIndex(document(), forceRefresh = false)
-        service.ensureIndex(document(), forceRefresh = false)
+        service.ensureIndex(document, forceRefresh = false)
+        service.ensureIndex(document, forceRefresh = false)
 
         assertThat(extractionService.extractCalls).isEqualTo(1)
     }
 
     @Test
     fun selectionForBoundsReturnsIntersectingText() = runTest {
+        val document = document("selection")
         val service = DefaultDocumentSearchService(
             store = RoomSearchIndexStore(FakeSearchIndexDao(), FakeRecentSearchDao(), json),
             extractionService = FakeTextExtractionService(
@@ -91,7 +95,7 @@ class DefaultDocumentSearchServiceTest {
             ocrSessionStore = OcrSessionStore(json),
         )
 
-        val selection = service.selectionForBounds(document(), 0, bounds(0.08f, 0.08f, 0.42f, 0.22f))
+        val selection = service.selectionForBounds(document, 0, bounds(0.08f, 0.08f, 0.42f, 0.22f))
 
         assertThat(selection?.text).contains("Clause A")
         assertThat(selection?.text).doesNotContain("Clause B")
@@ -99,6 +103,7 @@ class DefaultDocumentSearchServiceTest {
 
     @Test
     fun ensureIndexLoadsPersistedOcrFromDatabaseBackedStore() = runTest {
+        val document = document("persisted-ocr")
         val ocrDao = FakeSearchOcrJobDao()
         val ocrPage = OcrPageContent(
             pageIndex = 0,
@@ -127,7 +132,7 @@ class DefaultDocumentSearchServiceTest {
         ocrDao.upsert(
             OcrJobEntity(
                 id = "doc::0",
-                documentKey = document().documentRef.sourceKey,
+                documentKey = document.documentRef.sourceKey,
                 pageIndex = 0,
                 imagePath = "/tmp/page.png",
                 status = OcrJobStatus.Completed.name,
@@ -147,22 +152,111 @@ class DefaultDocumentSearchServiceTest {
             ocrSessionStore = OcrSessionStore(json, ocrDao),
         )
 
-        val results = service.search(document(), "invoice")
+        val results = service.search(document, "invoice")
 
         assertThat(results.hits).hasSize(1)
         assertThat(results.hits.first().source).isEqualTo(SearchContentSource.Ocr)
         assertThat(results.hits.first().matchText).contains("invoice")
     }
 
-    private fun document(): DocumentModel {
+    @Test
+    fun ensureIndexRecoversGarbledEmbeddedTextWithOcrFallback() = runTest {
+        val document = document("garbled-recovery")
+        val recoveryRuntime = FakeEmbeddedTextRecoveryRuntime(
+            recoveredPages = listOf(
+                OcrRecoveredPage(
+                    page = OcrPageContent(
+                        pageIndex = 0,
+                        text = "Sample enterprise agreement describing services and obligations.",
+                        blocks = listOf(
+                            OcrTextBlockModel(
+                                text = "Sample enterprise agreement describing services and obligations.",
+                                bounds = bounds(0.1f, 0.1f, 0.9f, 0.2f),
+                                lines = listOf(
+                                    OcrTextLineModel(
+                                        text = "Sample enterprise agreement describing services and obligations.",
+                                        bounds = bounds(0.1f, 0.1f, 0.9f, 0.2f),
+                                        elements = listOf(
+                                            OcrTextElementModel(
+                                                text = "Sample enterprise agreement describing services and obligations.",
+                                                bounds = bounds(0.1f, 0.1f, 0.9f, 0.2f),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                        imageWidth = 1000,
+                        imageHeight = 1600,
+                    ),
+                    strategy = "test-ocr",
+                ),
+            ),
+        )
+        val service = DefaultDocumentSearchService(
+            store = RoomSearchIndexStore(FakeSearchIndexDao(), FakeRecentSearchDao(), json),
+            extractionService = FakeTextExtractionService(
+                listOf(
+                    IndexedPageContent(
+                        pageIndex = 0,
+                        pageText = "%#4*@6!! 9%5^7&* @@@ 34%% %%7 %%__ broken glyph stream",
+                        blocks = listOf(
+                            ExtractedTextBlock(0, "%#4*@6!! 9%5^7&* @@@", bounds(0.1f, 0.1f, 0.8f, 0.18f)),
+                            ExtractedTextBlock(0, "34%% %%7 %%__ broken glyph stream", bounds(0.1f, 0.2f, 0.7f, 0.28f)),
+                        ),
+                    ),
+                ),
+            ),
+            ocrSessionStore = OcrSessionStore(json),
+            embeddedTextRecoveryRuntime = recoveryRuntime,
+        )
+
+        val results = service.search(document, "services")
+
+        assertThat(recoveryRuntime.invocations).isEqualTo(1)
+        assertThat(results.hits).hasSize(1)
+        assertThat(results.hits.first().source).isEqualTo(SearchContentSource.Ocr)
+        assertThat(results.hits.first().matchText).contains("services and obligations")
+    }
+
+    @Test
+    fun ensureIndexKeepsCleanEmbeddedTextWithoutFallback() = runTest {
+        val document = document("clean-embedded")
+        val recoveryRuntime = FakeEmbeddedTextRecoveryRuntime(emptyList())
+        val service = DefaultDocumentSearchService(
+            store = RoomSearchIndexStore(FakeSearchIndexDao(), FakeRecentSearchDao(), json),
+            extractionService = FakeTextExtractionService(
+                listOf(
+                    IndexedPageContent(
+                        pageIndex = 0,
+                        pageText = "This contract explains the service scope, renewal terms, and payment schedule.",
+                        blocks = listOf(
+                            ExtractedTextBlock(0, "This contract explains the service scope, renewal terms, and payment schedule.", bounds(0.1f, 0.1f, 0.9f, 0.2f)),
+                        ),
+                    ),
+                ),
+            ),
+            ocrSessionStore = OcrSessionStore(json),
+            embeddedTextRecoveryRuntime = recoveryRuntime,
+        )
+
+        val results = service.search(document, "renewal")
+
+        assertThat(recoveryRuntime.invocations).isEqualTo(0)
+        assertThat(results.hits).hasSize(1)
+        assertThat(results.hits.first().source).isEqualTo(SearchContentSource.EmbeddedText)
+    }
+
+    private fun document(label: String): DocumentModel {
+        val documentPath = "C:/temp/$label-${UUID.randomUUID()}.pdf"
         return DocumentModel(
             sessionId = "session",
             documentRef = PdfDocumentRef(
-                uriString = "file:///tmp/doc.pdf",
-                displayName = "doc.pdf",
+                uriString = "file:///$documentPath",
+                displayName = "$label.pdf",
                 sourceType = DocumentSourceType.File,
-                sourceKey = "/tmp/doc.pdf",
-                workingCopyPath = "/tmp/doc.pdf",
+                sourceKey = documentPath,
+                workingCopyPath = documentPath,
             ),
             pages = listOf(PageModel(index = 0, label = "1")),
         )
@@ -182,6 +276,17 @@ private class FakeTextExtractionService(
     }
 
     override suspend fun extractOutline(documentRef: PdfDocumentRef): List<OutlineItem> = emptyList()
+}
+
+private class FakeEmbeddedTextRecoveryRuntime(
+    private val recoveredPages: List<OcrRecoveredPage>,
+) : EmbeddedTextRecoveryRuntime {
+    var invocations: Int = 0
+
+    override suspend fun recover(documentRef: PdfDocumentRef, pages: List<IndexedPageContent>): List<OcrRecoveredPage> {
+        invocations += 1
+        return recoveredPages
+    }
 }
 
 private class FakeSearchIndexDao : SearchIndexDao {

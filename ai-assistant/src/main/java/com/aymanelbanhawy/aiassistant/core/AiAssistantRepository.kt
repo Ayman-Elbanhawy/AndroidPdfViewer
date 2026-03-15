@@ -368,7 +368,7 @@ class DefaultAiAssistantRepository(
             .filter { it.third > 0f }
             .sortedByDescending { it.third }
             .take(8)
-            .mapIndexed { index, (document, block, score) -> SemanticSearchCard("semantic-$index", "${document.documentRef.displayName} • Page ${block.pageIndex + 1}", block.text.take(180), CitationAnchor(document.documentRef.sourceKey, document.documentRef.displayName, block.pageIndex, block.bounds, block.text.take(120)), score) }
+            .mapIndexed { index, (document, block, score) -> SemanticSearchCard("semantic-$index", "${document.documentRef.displayName} - Page ${block.pageIndex + 1}", block.text.take(180), CitationAnchor(document.documentRef.sourceKey, document.documentRef.displayName, block.pageIndex, block.bounds, block.text.take(120)), score) }
     }
 
     private fun buildCitations(request: AssistantPromptRequest): List<AssistantCitation> =
@@ -390,8 +390,10 @@ class DefaultAiAssistantRepository(
 
     private fun extractActionItems(text: String): List<String> = text.lines().map { it.trim().removePrefix("- ").removePrefix("* ") }.filter { it.length > 8 }.take(6)
     private fun resolveAvailability(entitlements: EntitlementStateModel, enterpriseState: EnterpriseAdminStateModel): AssistantAvailability {
-        val missing = buildSet { if (!entitlements.features.contains(FeatureFlag.Ai)) add(FeatureFlag.Ai) }
-        if (missing.isNotEmpty()) return AssistantAvailability(false, "AI features are not included in the current plan.", missing)
+        val hasAiEntitlement = entitlements.features.contains(FeatureFlag.Ai) ||
+            enterpriseState.plan == com.aymanelbanhawy.editor.core.enterprise.LicensePlan.Premium ||
+            enterpriseState.plan == com.aymanelbanhawy.editor.core.enterprise.LicensePlan.Enterprise
+        if (!hasAiEntitlement) return AssistantAvailability(false, "AI features are not included in the current plan.", setOf(FeatureFlag.Ai))
         if (!enterpriseState.adminPolicy.aiEnabled) return AssistantAvailability(false, "Tenant policy has disabled AI assistance.")
         return AssistantAvailability(true)
     }
@@ -501,7 +503,6 @@ object AssistantResultFormatter {
 
     fun citationAnchor(documentKey: String, documentTitle: String, pageIndex: Int, bounds: com.aymanelbanhawy.editor.core.model.NormalizedRect, quote: String): CitationAnchor = CitationAnchor(documentKey, documentTitle, pageIndex, bounds, quote)
 }
-
 
 
 

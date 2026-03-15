@@ -195,6 +195,41 @@ Current verification status from the latest local pass:
 - `:app:lintProdDebug :app:assembleProdDebug :app:testProdDebugUnitTest` passes
 - `:app:connectedProdDebugAndroidTest` still exposes a small set of emulator/framework issues in instrumentation and benchmark tests, so connected coverage is not yet fully green on this machine
 
+## Current AI and Search Updates
+
+The latest round of work focused on AI entitlement correctness, saved enterprise settings reload, and grounding quality for damaged embedded text.
+
+- Premium and Enterprise plan resolution now keep `FeatureFlag.Ai` in entitlements, while policy still controls whether AI is usable at runtime
+- Enterprise admin state now reloads from persisted storage before assistant refresh, which keeps saved plan and policy changes stable across app restarts
+- Assistant availability in the app UI now re-evaluates from the current plan, entitlements, and policy instead of trusting stale repository state alone
+- Search indexing now prefers OCR text when OCR exists and keeps embedded text when it is clean
+- Suspicious embedded text can now be detected and recovered with an OCR fallback through `EmbeddedTextRecoveryRuntime`
+- Garbled embedded-text pages are re-indexed for search and AI grounding with OCR-backed text when recovery succeeds
+
+Relevant files:
+- `ai-assistant/src/main/java/com/aymanelbanhawy/aiassistant/core/AiAssistantRepository.kt`
+- `app/src/main/java/com/aymanelbanhawy/enterprisepdf/app/editor/EditorViewModel.kt`
+- `editor-core/src/main/java/com/aymanelbanhawy/editor/core/enterprise/EnterpriseEngines.kt`
+- `editor-core/src/main/java/com/aymanelbanhawy/editor/core/search/DefaultDocumentSearchService.kt`
+- `editor-core/src/main/java/com/aymanelbanhawy/editor/core/search/RoomSearchIndexStore.kt`
+- `editor-core/src/main/java/com/aymanelbanhawy/editor/core/search/EmbeddedTextRecoveryRuntime.kt`
+
+## Known Bugs
+
+These are the current bugs or open issues we still know about in the repo:
+
+1. Premium AI entitlement still needs final end-to-end runtime validation.
+   - The saved Premium plan and AI-enabled policy persist correctly, but the assistant entitlement flow has only been verified live in Enterprise mode during the latest emulator pass.
+
+2. Enterprise AI panel opens correctly, but the actual provider response path still needs more live validation.
+   - In the latest emulator test, the Enterprise assistant entitlement gate cleared and the panel opened, but a quick `Summarize Document` action did not render a visible answer within the short wait window.
+
+3. Embedded-text OCR fallback is covered by unit tests but still needs broader on-device validation with multiple real-world PDFs.
+   - The new recovery path is designed to repair garbled text extraction for search and AI grounding, but it should still be validated on a wider set of scanned, damaged, and hybrid PDFs.
+
+4. Some connected Android tests can still be sensitive to emulator/framework behavior depending on the device image.
+   - This has historically shown up in benchmark, snapshot, and UI-input dependent tests when the emulator image changes.
+
 ## Managed Configuration
 
 Managed restrictions support enterprise deployment scenarios for:

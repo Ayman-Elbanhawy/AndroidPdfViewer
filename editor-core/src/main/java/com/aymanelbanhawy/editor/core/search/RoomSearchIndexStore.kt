@@ -16,18 +16,12 @@ class RoomSearchIndexStore(
         return searchIndexDao.indexForDocument(documentKey).map { entity ->
             val embeddedBlocks = decodeBlocks(entity.textBlocksJson)
             val ocrBlocks = decodeBlocks(entity.ocrBlocksJson)
-            val allBlocks = embeddedBlocks + ocrBlocks
-            val pageText = buildString {
-                append(entity.pageText)
-                if (!entity.ocrText.isNullOrBlank()) {
-                    if (isNotBlank()) append('\n')
-                    append(entity.ocrText)
-                }
-            }.trim()
+            val preferredBlocks = if (ocrBlocks.isNotEmpty()) ocrBlocks else embeddedBlocks
+            val preferredPageText = entity.ocrText?.takeIf { it.isNotBlank() } ?: entity.pageText
             IndexedPageContent(
                 pageIndex = entity.pageIndex,
-                pageText = pageText,
-                blocks = allBlocks.sortedBy { it.bounds.top },
+                pageText = preferredPageText.trim(),
+                blocks = preferredBlocks.sortedBy { it.bounds.top },
                 source = if (ocrBlocks.isNotEmpty()) SearchContentSource.Ocr else SearchContentSource.EmbeddedText,
             )
         }

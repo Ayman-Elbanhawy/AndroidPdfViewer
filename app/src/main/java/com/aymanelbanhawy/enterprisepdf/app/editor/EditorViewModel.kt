@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import com.aymanelbanhawy.aiassistant.core.AiProviderDraft
 import com.aymanelbanhawy.aiassistant.core.AssistantAudioUiState
+import com.aymanelbanhawy.aiassistant.core.AssistantAvailability
 import com.aymanelbanhawy.aiassistant.core.AssistantPrivacyMode
 import com.aymanelbanhawy.aiassistant.core.AssistantUiState
 import com.aymanelbanhawy.aiassistant.core.ReadAloudProgress
@@ -58,7 +59,9 @@ import com.aymanelbanhawy.editor.core.connectors.ConnectorTransferJobModel
 import com.aymanelbanhawy.editor.core.connectors.SaveDestinationMode
 import com.aymanelbanhawy.editor.core.enterprise.AdminPolicyModel
 import com.aymanelbanhawy.editor.core.enterprise.EnterpriseAdminStateModel
+import com.aymanelbanhawy.editor.core.enterprise.EntitlementEngine
 import com.aymanelbanhawy.editor.core.enterprise.EntitlementStateModel
+import com.aymanelbanhawy.editor.core.enterprise.FeatureFlag
 import com.aymanelbanhawy.editor.core.enterprise.LicensePlan
 import com.aymanelbanhawy.editor.core.enterprise.PrivacySettingsModel
 import com.aymanelbanhawy.editor.core.enterprise.TelemetryCategory
@@ -383,20 +386,20 @@ class EditorViewModel(
     init {
         observeDocumentOcrState()
         viewModelScope.launch {
+            runCatching { refreshEnterpriseData() }
             ocrSettings.value = appContainer.ocrJobPipeline.loadSettings()
             scanImportOptions.value = scanImportOptions.value.copy(ocrSettings = ocrSettings.value)
             session.openDocument(appContainer.seedDocumentRequest())
-            refreshThumbnails()
-            refreshFormSupportData()
-            refreshSearchSupportData(forceSync = true)
-            refreshCollaborationData()
-            refreshWorkflowData()
-            refreshSecurityData()
-            refreshEnterpriseData()
-            refreshDiagnosticsData()
-            recordActivity(ActivityEventType.Opened, "Opened ${session.state.value.document?.documentRef?.displayName.orEmpty()}")
-            recordSecurityAudit(AuditEventType.DocumentOpened, "Opened document")
-            queueTelemetry("document_opened", mapOf("mode" to enterpriseState.value.authSession.mode.name))
+            runCatching { refreshThumbnails() }
+            runCatching { refreshFormSupportData() }
+            runCatching { refreshSearchSupportData(forceSync = true) }
+            runCatching { refreshCollaborationData() }
+            runCatching { refreshWorkflowData() }
+            runCatching { refreshSecurityData() }
+            runCatching { refreshDiagnosticsData() }
+            runCatching { recordActivity(ActivityEventType.Opened, "Opened ${session.state.value.document?.documentRef?.displayName.orEmpty()}") }
+            runCatching { recordSecurityAudit(AuditEventType.DocumentOpened, "Opened document") }
+            runCatching { queueTelemetry("document_opened", mapOf("mode" to enterpriseState.value.authSession.mode.name)) }
         }
     }
 
@@ -434,7 +437,10 @@ class EditorViewModel(
             EditorAction.Assistant -> {
                 activePanel.value = WorkspacePanel.Assistant
                 sidebarVisible.value = true
-                viewModelScope.launch { refreshAssistantData() }
+                viewModelScope.launch {
+                    refreshEnterpriseData()
+                    refreshAssistantData()
+                }
                 session.onActionSelected(action)
             }
             EditorAction.Review -> {
@@ -1547,26 +1553,21 @@ class EditorViewModel(
 
     fun signInPersonal(displayName: String) {
         viewModelScope.launch {
-            enterpriseState.value = appContainer.enterpriseAdminRepository.signInPersonal(displayName)
-            entitlements.value = appContainer.enterpriseAdminRepository.resolveEntitlements(enterpriseState.value)
+            syncEnterpriseState(appContainer.enterpriseAdminRepository.signInPersonal(displayName))
             queueTelemetry("sign_in_personal", mapOf("user" to enterpriseState.value.authSession.displayName))
         }
     }
 
     fun signInEnterprise(email: String, tenant: TenantConfigurationModel) {
         viewModelScope.launch {
-            enterpriseState.value = appContainer.enterpriseAdminRepository.signInEnterprise(email, tenant)
-            entitlements.value = appContainer.enterpriseAdminRepository.resolveEntitlements(enterpriseState.value)
-            telemetryEvents.value = appContainer.enterpriseAdminRepository.pendingTelemetry()
+            syncEnterpriseState(appContainer.enterpriseAdminRepository.signInEnterprise(email, tenant))
             queueTelemetry("sign_in_enterprise", mapOf("tenant" to tenant.tenantName))
         }
     }
 
     fun refreshEnterpriseRemoteState() {
         viewModelScope.launch {
-            enterpriseState.value = appContainer.enterpriseAdminRepository.refreshRemoteState(force = true)
-            entitlements.value = appContainer.enterpriseAdminRepository.resolveEntitlements(enterpriseState.value)
-            telemetryEvents.value = appContainer.enterpriseAdminRepository.pendingTelemetry()
+            syncEnterpriseState(appContainer.enterpriseAdminRepository.refreshRemoteState(force = true))
             localEvents.emit(EditorSessionEvent.UserMessage("Refreshed enterprise tenant and policy state"))
         }
     }
@@ -1581,33 +1582,33 @@ class EditorViewModel(
 
     fun signOutEnterprise() {
         viewModelScope.launch {
-            enterpriseState.value = appContainer.enterpriseAdminRepository.signOut()
-            entitlements.value = appContainer.enterpriseAdminRepository.resolveEntitlements(enterpriseState.value)
+            syncEnterpriseState(appContainer.enterpriseAdminRepository.signOut())
             queueTelemetry("sign_out")
         }
     }
 
     fun setEnterprisePlan(plan: LicensePlan) {
         viewModelScope.launch {
-            enterpriseState.value = enterpriseState.value.copy(plan = plan)
-            appContainer.enterpriseAdminRepository.saveState(enterpriseState.value)
-            entitlements.value = appContainer.enterpriseAdminRepository.resolveEntitlements(enterpriseState.value)
+            val updated = enterpriseState.value.copy(plan = plan)
+            appContainer.enterpriseAdminRepository.saveState(updated)
+            syncEnterpriseState(updated)
             queueTelemetry("plan_changed", mapOf("plan" to plan.name))
         }
     }
 
     fun updateEnterprisePrivacy(settings: PrivacySettingsModel) {
         viewModelScope.launch {
-            enterpriseState.value = enterpriseState.value.copy(privacySettings = settings)
-            appContainer.enterpriseAdminRepository.saveState(enterpriseState.value)
+            val updated = enterpriseState.value.copy(privacySettings = settings)
+            appContainer.enterpriseAdminRepository.saveState(updated)
+            syncEnterpriseState(updated)
         }
     }
 
     fun updateEnterprisePolicy(policy: AdminPolicyModel) {
         viewModelScope.launch {
-            enterpriseState.value = enterpriseState.value.copy(adminPolicy = policy)
-            appContainer.enterpriseAdminRepository.saveState(enterpriseState.value)
-            entitlements.value = appContainer.enterpriseAdminRepository.resolveEntitlements(enterpriseState.value)
+            val updated = enterpriseState.value.copy(adminPolicy = policy)
+            appContainer.enterpriseAdminRepository.saveState(updated)
+            syncEnterpriseState(updated)
             queueTelemetry("policy_updated")
         }
     }
@@ -2058,7 +2059,16 @@ class EditorViewModel(
     }
 
     private fun syncAssistantStateFromRepository() {
-        assistantState.value = appContainer.aiAssistantRepository.state.value.copy(audio = assistantAudioState.value)
+        val repositoryState = appContainer.aiAssistantRepository.state.value
+        val effectiveAvailability = when {
+            !enterpriseState.value.adminPolicy.aiEnabled -> AssistantAvailability(false, "Tenant policy has disabled AI assistance.")
+            entitlements.value.features.contains(FeatureFlag.Ai) || enterpriseState.value.plan == LicensePlan.Premium || enterpriseState.value.plan == LicensePlan.Enterprise -> AssistantAvailability(true)
+            else -> repositoryState.availability
+        }
+        assistantState.value = repositoryState.copy(
+            availability = effectiveAvailability,
+            audio = assistantAudioState.value,
+        )
     }
 
     private fun startReadAloud(title: String, text: String) {
@@ -2087,9 +2097,36 @@ class EditorViewModel(
         syncAssistantStateFromRepository()
     }
     private suspend fun refreshEnterpriseData() {
-        enterpriseState.value = appContainer.enterpriseAdminRepository.refreshRemoteState(force = false)
-        entitlements.value = appContainer.enterpriseAdminRepository.resolveEntitlements(enterpriseState.value)
+        val persistedState = appContainer.enterpriseAdminRepository.loadState()
+        syncEnterpriseState(persistedState)
+        if (persistedState.authSession.isEnterpriseRemote()) {
+            syncEnterpriseState(appContainer.enterpriseAdminRepository.refreshRemoteState(force = false))
+        }
+    }
+
+    private suspend fun syncEnterpriseState(state: EnterpriseAdminStateModel) {
+        enterpriseState.value = state
+        entitlements.value = resolvedEntitlements(state)
         telemetryEvents.value = appContainer.enterpriseAdminRepository.pendingTelemetry()
+        refreshAssistantAvailabilitySnapshot()
+        if (activePanel.value == WorkspacePanel.Assistant) {
+            appContainer.aiAssistantRepository.refreshProviderCatalog(entitlements.value, enterpriseState.value)
+        }
+        refreshAssistantAudioAvailability()
+    }
+
+    private fun resolvedEntitlements(state: EnterpriseAdminStateModel): EntitlementStateModel {
+        return EntitlementEngine.resolve(state.plan, state.adminPolicy, state.remoteFeatureOverrides)
+    }
+
+    private suspend fun refreshAssistantAvailabilitySnapshot() {
+        appContainer.aiAssistantRepository.refresh(
+            document = session.state.value.document,
+            selection = selectedTextSelection.value,
+            entitlements = entitlements.value,
+            enterpriseState = enterpriseState.value,
+        )
+        syncAssistantStateFromRepository()
     }
 
     private suspend fun queueTelemetry(name: String, properties: Map<String, String> = emptyMap()) {
@@ -2214,15 +2251,6 @@ class EditorViewModel(
 }
 
 private fun Set<Int>.toggle(index: Int): Set<Int> = if (index in this) this - index else this + index
-
-
-
-
-
-
-
-
-
 
 
 

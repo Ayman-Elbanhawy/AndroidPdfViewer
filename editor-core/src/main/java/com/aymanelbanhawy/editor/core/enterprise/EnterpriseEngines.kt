@@ -18,13 +18,11 @@ object EntitlementEngine {
                 FeatureFlag.Sign,
                 FeatureFlag.Search,
                 FeatureFlag.Security,
+                FeatureFlag.Ai,
             )
             LicensePlan.Enterprise -> FeatureFlag.entries.toMutableSet()
         }.toMutableSet()
         features.addAll(remoteFeatureOverrides)
-        if (!policy.aiEnabled) {
-            features.remove(FeatureFlag.Ai)
-        }
         if (policy.allowedCloudConnectors == listOf(CloudConnector.LocalFiles)) {
             features.remove(FeatureFlag.CloudConnectors)
         }
