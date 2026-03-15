@@ -1,4 +1,4 @@
-package com.aymanelbanhawy.enterprisepdf.app.search
+ï»¿package com.aymanelbanhawy.enterprisepdf.app.search
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
@@ -95,14 +95,14 @@ fun SearchSidebar(
         modifier = modifier
             .semantics { paneTitle = "Search panel" }
             .testTag("search-sidebar"),
-        tonalElevation = 4.dp,
-        shadowElevation = 8.dp,
+        tonalElevation = 5.dp,
+        shadowElevation = 12.dp,
         shape = MaterialTheme.shapes.extraLarge,
         color = MaterialTheme.colorScheme.surface,
     ) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.fillMaxSize().padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text("Search", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
             Text(
@@ -195,8 +195,9 @@ private fun ReadingModeCard(
     Surface(
         modifier = modifier.testTag("reading-mode-card"),
         shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.42f),
-        tonalElevation = 2.dp,
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.52f),
+        tonalElevation = 3.dp,
+        shadowElevation = 3.dp,
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
@@ -294,7 +295,7 @@ private fun OcrSection(
         if (jobs.isEmpty()) {
             "No OCR jobs for this document yet. Imported scans will show progress here as pages become searchable."
         } else {
-            "Progress $progress% · Completed $completed/${jobs.size} · Running $running · Pending $pending · Paused $paused · Failed $failed"
+            "Progress $progress% ï¿½ Completed $completed/${jobs.size} ï¿½ Running $running ï¿½ Pending $pending ï¿½ Paused $paused ï¿½ Failed $failed"
         },
         style = MaterialTheme.typography.bodySmall,
     )
@@ -387,13 +388,13 @@ private fun OcrJobCard(
         onClick = { onOpenOcrPage(job.pageIndex) },
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Page ${job.pageIndex + 1} · ${job.status.name}", style = MaterialTheme.typography.labelLarge)
-            Text("Progress ${job.progressPercent}% · Attempt ${job.attemptCount}/${job.maxAttempts}", style = MaterialTheme.typography.bodySmall)
+            Text("Page ${job.pageIndex + 1} ï¿½ ${job.status.name}", style = MaterialTheme.typography.labelLarge)
+            Text("Progress ${job.progressPercent}% ï¿½ Attempt ${job.attemptCount}/${job.maxAttempts}", style = MaterialTheme.typography.bodySmall)
             job.errorMessage?.takeIf { it.isNotBlank() }?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
             if (job.diagnostics.isNotEmpty()) {
-                Text(job.diagnostics.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
+                Text(job.diagnostics.joinToString(" ï¿½ "), style = MaterialTheme.typography.bodySmall)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (job.canPause) {

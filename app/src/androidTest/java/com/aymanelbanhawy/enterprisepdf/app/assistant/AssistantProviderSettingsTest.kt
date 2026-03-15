@@ -88,6 +88,8 @@ class AssistantProviderSettingsTest {
                     onCancelVoicePromptCapture = {},
                     onReadCurrentPageAloud = { readPageTriggered = true },
                     onReadSelectionAloud = {},
+                    onPauseReadAloud = {},
+                    onResumeReadAloud = {},
                     onStopReadAloud = {},
                     onAssistantAudioEnabledChanged = {
                         audioToggleTriggered = true

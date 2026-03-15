@@ -28,6 +28,7 @@ import androidx.compose.material.icons.outlined.FactCheck
 import androidx.compose.material.icons.outlined.FileOpen
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Draw
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.IosShare
@@ -189,6 +190,8 @@ fun EditorScreen(
     onCancelVoicePromptCapture: () -> Unit,
     onReadCurrentPageAloud: () -> Unit,
     onReadSelectionAloud: () -> Unit,
+    onPauseReadAloud: () -> Unit,
+    onResumeReadAloud: () -> Unit,
     onStopReadAloud: () -> Unit,
     onAssistantAudioEnabledChanged: (Boolean) -> Unit,
     onNextSearchHit: () -> Unit,
@@ -427,6 +430,7 @@ fun EditorScreen(
                         }
                         IconTooltipButton(icon = Icons.AutoMirrored.Outlined.Article, tooltip = "Add Text Box", onClick = onAddTextBox)
                         IconTooltipButton(icon = Icons.Outlined.IosShare, tooltip = "Add Image", onClick = onAddImage)
+                        IconTooltipButton(icon = Icons.Outlined.Draw, tooltip = "Open Signature Tools", onClick = { onActionSelected(EditorAction.Sign) })
                         IconTooltipButton(icon = Icons.Outlined.ContentCopy, tooltip = "Duplicate Annotation", onClick = onDuplicateSelected)
                         IconTooltipButton(icon = Icons.Outlined.Delete, tooltip = "Delete Annotation", onClick = onDeleteSelected)
                         IconTooltipButton(icon = Icons.Outlined.Rotate90DegreesCw, tooltip = "Rotate Page", onClick = onRotatePage)
@@ -514,6 +518,8 @@ fun EditorScreen(
                         onCancelVoicePromptCapture = onCancelVoicePromptCapture,
                         onReadCurrentPageAloud = onReadCurrentPageAloud,
                         onReadSelectionAloud = onReadSelectionAloud,
+                        onPauseReadAloud = onPauseReadAloud,
+                        onResumeReadAloud = onResumeReadAloud,
                         onStopReadAloud = onStopReadAloud,
                         onAssistantAudioEnabledChanged = onAssistantAudioEnabledChanged,
                     )

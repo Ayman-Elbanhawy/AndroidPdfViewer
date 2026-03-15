@@ -47,7 +47,7 @@ fun EditorWorkspaceHost(
             pendingAudioAction?.invoke()
         } else {
             viewModel.cancelVoicePromptCapture()
-            viewModel.cancelVoiceCommentForNewThread()
+            viewModel.cancelAllPendingVoiceComments()
         }
         pendingAudioAction = null
     }
@@ -206,6 +206,8 @@ private fun rememberEditorScreenCallbacks(
     onCancelVoicePromptCapture = viewModel::cancelVoicePromptCapture,
     onReadCurrentPageAloud = viewModel::readCurrentPageAloud,
     onReadSelectionAloud = viewModel::readSelectedTextAloud,
+    onPauseReadAloud = viewModel::pauseReadAloud,
+    onResumeReadAloud = viewModel::resumeReadAloud,
     onStopReadAloud = viewModel::stopReadAloud,
     onAssistantAudioEnabledChanged = viewModel::setAssistantAudioEnabled,
     onNextSearchHit = viewModel::nextSearchHit,

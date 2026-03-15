@@ -22,13 +22,16 @@ class AssistantAudioStateTransitionsTest {
     fun readAloudTransitions_trackProgressAndStopState() {
         val preparing = AssistantAudioUiState().reduceReadAloudEvent(ReadAloudEvent.Starting("Page 1", 3))
         val speaking = preparing.reduceReadAloudEvent(ReadAloudEvent.SegmentStarted(1, 3, "Paragraph 2"))
-        val stopped = speaking.readAloudStopped()
+        val paused = speaking.readAloudPaused("Page 1", 1, 3, "Paragraph 2")
+        val stopped = paused.readAloudStopped()
 
         assertThat(preparing.readAloud.status).isEqualTo(ReadAloudStatus.Preparing)
         assertThat(preparing.readAloud.progress.totalCount).isEqualTo(3)
         assertThat(speaking.readAloud.status).isEqualTo(ReadAloudStatus.Speaking)
         assertThat(speaking.readAloud.progress.currentIndex).isEqualTo(1)
         assertThat(speaking.readAloud.progress.currentSegment).isEqualTo("Paragraph 2")
+        assertThat(paused.readAloud.status).isEqualTo(ReadAloudStatus.Paused)
+        assertThat(paused.readAloud.progress.currentSegment).isEqualTo("Paragraph 2")
         assertThat(stopped.readAloud.status).isEqualTo(ReadAloudStatus.Stopped)
         assertThat(stopped.readAloud.diagnosticsMessage).isEqualTo("Playback stopped.")
     }

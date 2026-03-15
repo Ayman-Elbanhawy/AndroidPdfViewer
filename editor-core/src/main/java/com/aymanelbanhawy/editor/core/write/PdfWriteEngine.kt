@@ -107,7 +107,6 @@ data class PdfMutationSessionPayload(
     val annotations: List<AnnotationModel> = emptyList(),
     val transactionId: String,
     val updatedAtEpochMillis: Long,
-    val legacyCompatibilityMigrated: Boolean,
     val integrity: MutationIntegrityStatus,
     val checksumSha256: String,
 )
@@ -605,7 +604,6 @@ class PdfBoxWriteEngine(
             annotations = annotations,
             transactionId = transactionId,
             updatedAtEpochMillis = System.currentTimeMillis(),
-            legacyCompatibilityMigrated = false,
             integrity = integrity,
             checksumSha256 = checksum,
         )

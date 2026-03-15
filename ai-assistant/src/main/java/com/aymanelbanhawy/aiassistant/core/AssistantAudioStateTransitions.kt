@@ -87,6 +87,19 @@ fun AssistantAudioUiState.reduceReadAloudEvent(event: ReadAloudEvent): Assistant
             ),
         ),
     )
+    is ReadAloudEvent.Paused -> copy(
+        readAloud = readAloud.copy(
+            status = ReadAloudStatus.Paused,
+            title = event.title,
+            diagnosticsMessage = "Playback paused.",
+            errorMessage = null,
+            progress = ReadAloudProgress(
+                currentIndex = event.index,
+                totalCount = event.totalSegments,
+                currentSegment = event.text,
+            ),
+        ),
+    )
     is ReadAloudEvent.Completed -> copy(
         readAloud = readAloud.copy(
             status = ReadAloudStatus.Completed,
@@ -116,3 +129,7 @@ fun AssistantAudioUiState.readAloudStopped(): AssistantAudioUiState = copy(
         diagnosticsMessage = "Playback stopped.",
     ),
 )
+
+fun AssistantAudioUiState.readAloudPaused(title: String, index: Int, totalSegments: Int, text: String): AssistantAudioUiState {
+    return reduceReadAloudEvent(ReadAloudEvent.Paused(title, index, totalSegments, text))
+}

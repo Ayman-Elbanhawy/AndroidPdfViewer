@@ -94,6 +94,8 @@ data class EditorScreenCallbacks(
     val onCancelVoicePromptCapture: () -> Unit,
     val onReadCurrentPageAloud: () -> Unit,
     val onReadSelectionAloud: () -> Unit,
+    val onPauseReadAloud: () -> Unit,
+    val onResumeReadAloud: () -> Unit,
     val onStopReadAloud: () -> Unit,
     val onAssistantAudioEnabledChanged: (Boolean) -> Unit,
     val onNextSearchHit: () -> Unit,

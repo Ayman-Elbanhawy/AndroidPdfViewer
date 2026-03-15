@@ -38,6 +38,8 @@ The repo is no longer only a viewer widget project. It now contains a modular mo
 - Page thumbnail generation and caching
 - Drag/reorder support
 - Rotate, delete, duplicate, extract, insert blank page, insert image page, merge, split, and batch operations
+- Quick split, quick merge, and quick rearrange surfaces reimplemented natively from mobile-first product ideas inspired by zPDF
+- Auto-hiding quick-tools chrome for organize mode so page thumbnails stay primary during drag interactions
 
 ### Forms and signatures
 - AcroForm field detection and modeling
@@ -104,6 +106,19 @@ The repo is no longer only a viewer widget project. It now contains a modular mo
 - Reading mode controls for text size, line spacing, character spacing, and margins with graceful fallback when semantic reflow is limited
 - Accessibility improvements across major flows, including pane titles, heading semantics, content descriptions, larger interaction surfaces, and stronger visual contrast
 - Visual snapshot coverage for key assistant and search surfaces in light and dark themes
+- Additional premium quick-tools and lightweight edit surfaces inspired by pdf-editor-android-app, reinterpreted natively in Compose
+- Refined icon buttons, cards, inspector surfaces, and organize/edit chrome for faster page and object workflows
+- Snapshot proof coverage for organize quick tools and lightweight edit tools in light and dark themes
+
+### Native inspiration report
+- Product ideas were reviewed from:
+  - `Zenqlo/zPDF`
+  - `siddarth16/pdf-editor-android-app`
+- The repo now includes a source-inspiration report and attribution note under:
+  - `docs/source-inspiration/task-65-native-inspiration-report.md`
+  - `docs/source-inspiration/ATTRIBUTION.md`
+- No React Native, Expo, or browser-only implementation code was copied into the primary Android architecture
+- No direct MIT code reuse was required for this pass; the current attribution update documents inspiration-only usage
 
 ### Diagnostics, recovery, and upgrade safety
 - Runtime diagnostics snapshot with provider health, sync backlog, OCR queue, connector state, recent failures, and migration reports
@@ -193,7 +208,8 @@ Current verification status from the latest local pass:
 - `:editor-core:test` passes
 - `:ai-assistant:test` passes
 - `:app:lintProdDebug :app:assembleProdDebug :app:testProdDebugUnitTest` passes
-- `:app:connectedProdDebugAndroidTest` still exposes a small set of emulator/framework issues in instrumentation and benchmark tests, so connected coverage is not yet fully green on this machine
+- `:app:connectedProdDebugAndroidTest` passes on the current local emulator run
+- `:app:releaseReadinessEvidence` passes and publishes the current visual, audio, write-engine, workflow, and source-inspiration proof bundles
 
 ## Current AI and Search Updates
 
@@ -227,8 +243,36 @@ These are the current bugs or open issues we still know about in the repo:
 3. Embedded-text OCR fallback is covered by unit tests but still needs broader on-device validation with multiple real-world PDFs.
    - The new recovery path is designed to repair garbled text extraction for search and AI grounding, but it should still be validated on a wider set of scanned, damaged, and hybrid PDFs.
 
-4. Some connected Android tests can still be sensitive to emulator/framework behavior depending on the device image.
-   - This has historically shown up in benchmark, snapshot, and UI-input dependent tests when the emulator image changes.
+4. Quick-tools instrumentation is intentionally skipped on API 36 emulator images.
+   - The quick-tools UI tests are implemented and wired into release evidence, but they are currently restricted to API 35 and below because the Android 16 / API 36 emulator image still triggers the Compose input-framework regression around `InputManager.getInstance`.
+
+5. Some emulator-backed UI and benchmark tests remain sensitive to device-image behavior even when the suite is green.
+   - We now have passing local connected coverage again, but the repo still contains test guards for unstable emulator/framework combinations and those may need revisiting when emulator images change.
+
+6. Source-inspiration reporting is accurate for the current pass, but it should be kept current as new inspiration-driven UX work lands.
+   - Any future direct reuse under MIT would need explicit file-level attribution and manifest updates.
+
+## Task 65 Additions
+
+The latest pass adds native quick-tools and visual polish inspired by external open-source products without importing incompatible architecture:
+
+- Quick page workflows:
+  - quick split
+  - quick merge
+  - quick rearrange
+- Lightweight object workflows:
+  - add text
+  - add image
+  - quick signature entry point into the dedicated sign flow
+- UI refresh:
+  - stronger premium dark/light color hierarchy
+  - improved icon contrast and touch targets
+  - more polished organize and inspector panels
+  - refreshed cards, surfaces, and action chrome
+- Evidence outputs:
+  - `app/build/reports/release/visual-proof/`
+  - `app/build/reports/release/quick-tools-proof/`
+  - `app/build/reports/release/source-inspiration/`
 
 ## Managed Configuration
 

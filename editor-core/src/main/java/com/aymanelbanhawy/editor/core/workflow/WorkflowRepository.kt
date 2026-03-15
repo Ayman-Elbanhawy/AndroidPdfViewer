@@ -18,6 +18,7 @@ import com.aymanelbanhawy.editor.core.forms.FormFieldType
 import com.aymanelbanhawy.editor.core.model.DocumentModel
 import com.aymanelbanhawy.editor.core.model.DocumentSourceType
 import com.aymanelbanhawy.editor.core.model.NormalizedRect
+import com.aymanelbanhawy.editor.core.model.OpenDocumentRequest
 import com.aymanelbanhawy.editor.core.ocr.OcrSessionStore
 import com.aymanelbanhawy.editor.core.repository.DocumentRepository
 import com.aymanelbanhawy.editor.core.scan.ScanImportService
@@ -101,39 +102,112 @@ class DefaultWorkflowRepository(
 
     override suspend fun exportCompareReport(reportId: String, destination: File, format: CompareReportExportFormat): ExportArtifactModel {
         val report = requireNotNull(compareReportDao.byId(reportId)?.toModel(json)) { "Compare report not found." }
-        return fileWorkflowService.exportCompareReport(report, destination, format)
+        requireExportAllowed(report.documentKey, "compare report export")
+        return fileWorkflowService.exportCompareReport(report, destination, format).also { artifact ->
+            recordExportActivity(
+                documentKey = report.documentKey,
+                summary = "Exported compare report for ${report.baselineDisplayName}",
+                metadata = mapOf("format" to format.name, "path" to artifact.path),
+            )
+        }
     }
 
     override suspend fun exportDocumentAsText(document: DocumentModel, destination: File): ExportBundleResult {
-        return fileWorkflowService.exportDocumentAsText(document, destination)
+        requireExportAllowed(document.documentRef.sourceKey, "text export")
+        return fileWorkflowService.exportDocumentAsText(document, destination).also { bundle ->
+            recordExportActivity(
+                documentKey = document.documentRef.sourceKey,
+                summary = "Exported ${document.documentRef.displayName} as text",
+                metadata = mapOf("artifactCount" to bundle.artifacts.size.toString(), "destination" to destination.absolutePath),
+            )
+        }
     }
 
     override suspend fun exportDocumentAsMarkdown(document: DocumentModel, destination: File): ExportBundleResult {
-        return fileWorkflowService.exportDocumentAsMarkdown(document, destination)
+        requireExportAllowed(document.documentRef.sourceKey, "markdown export")
+        return fileWorkflowService.exportDocumentAsMarkdown(document, destination).also { bundle ->
+            recordExportActivity(
+                documentKey = document.documentRef.sourceKey,
+                summary = "Exported ${document.documentRef.displayName} as markdown",
+                metadata = mapOf("artifactCount" to bundle.artifacts.size.toString(), "destination" to destination.absolutePath),
+            )
+        }
     }
 
     override suspend fun exportDocumentAsWord(document: DocumentModel, destination: File): ExportBundleResult {
-        return fileWorkflowService.exportDocumentAsWord(document, destination)
+        requireExportAllowed(document.documentRef.sourceKey, "word export")
+        return fileWorkflowService.exportDocumentAsWord(document, destination).also { bundle ->
+            recordExportActivity(
+                documentKey = document.documentRef.sourceKey,
+                summary = "Exported ${document.documentRef.displayName} as Word",
+                metadata = mapOf("artifactCount" to bundle.artifacts.size.toString(), "destination" to destination.absolutePath),
+            )
+        }
     }
 
     override suspend fun exportDocumentAsImages(document: DocumentModel, outputDirectory: File, format: ExportImageFormat): ExportBundleResult {
-        return fileWorkflowService.exportDocumentAsImages(document, outputDirectory, format)
+        requireExportAllowed(document.documentRef.sourceKey, "image export")
+        return fileWorkflowService.exportDocumentAsImages(document, outputDirectory, format).also { bundle ->
+            recordExportActivity(
+                documentKey = document.documentRef.sourceKey,
+                summary = "Exported ${document.documentRef.displayName} as page images",
+                metadata = mapOf(
+                    "artifactCount" to bundle.artifacts.size.toString(),
+                    "format" to format.name,
+                    "outputDirectory" to outputDirectory.absolutePath,
+                ),
+            )
+        }
     }
 
     override suspend fun createPdfFromImages(imageFiles: List<File>, displayName: String): CreatedPdfResult {
-        return fileWorkflowService.createPdfFromImages(imageFiles, displayName)
+        return fileWorkflowService.createPdfFromImages(imageFiles, displayName).also { created ->
+            val request = created.request as? OpenDocumentRequest.FromFile
+            recordExportActivity(
+                documentKey = request?.absolutePath ?: displayName,
+                summary = "Created PDF from ${created.sourceImageCount} image(s)",
+                metadata = mapOf("displayName" to displayName, "sourceCount" to created.sourceImageCount.toString()),
+            )
+        }
     }
 
     override suspend fun importSourceAsPdf(source: File, displayName: String): ImportedPdfResult {
-        return fileWorkflowService.importSourceAsPdf(source, displayName)
+        return fileWorkflowService.importSourceAsPdf(source, displayName).also { imported ->
+            val request = imported.request as? OpenDocumentRequest.FromFile
+            recordExportActivity(
+                documentKey = request?.absolutePath ?: source.absolutePath,
+                summary = "Imported ${source.name} into PDF",
+                metadata = mapOf("sourceFormat" to imported.sourceFormat.name, "destination" to (request?.absolutePath ?: "")),
+            )
+        }
     }
 
     override suspend fun mergeSourcesAsPdf(sources: List<File>, displayName: String): ImportedPdfResult {
-        return fileWorkflowService.mergeSourcesAsPdf(sources, displayName)
+        requireExportAllowed(sources.firstOrNull()?.absolutePath ?: displayName, "merge export")
+        return fileWorkflowService.mergeSourcesAsPdf(sources, displayName).also { imported ->
+            val request = imported.request as? OpenDocumentRequest.FromFile
+            recordExportActivity(
+                documentKey = request?.absolutePath ?: displayName,
+                summary = "Merged ${sources.size} source file(s) into ${displayName}",
+                metadata = mapOf("sourceCount" to sources.size.toString(), "destination" to (request?.absolutePath ?: "")),
+            )
+        }
     }
 
     override suspend fun optimizeDocument(document: DocumentModel, destination: File, preset: PdfOptimizationPreset): OptimizationResult {
-        return fileWorkflowService.optimizeDocument(document, destination, preset)
+        requireExportAllowed(document.documentRef.sourceKey, "optimization export")
+        return fileWorkflowService.optimizeDocument(document, destination, preset).also { result ->
+            recordExportActivity(
+                documentKey = document.documentRef.sourceKey,
+                summary = "Optimized ${document.documentRef.displayName} with ${preset.name}",
+                metadata = mapOf(
+                    "preset" to preset.name,
+                    "originalBytes" to result.originalSizeBytes.toString(),
+                    "optimizedBytes" to result.optimizedSizeBytes.toString(),
+                    "destination" to destination.absolutePath,
+                ),
+            )
+        }
     }
     override suspend fun formTemplates(documentKey: String): List<FormTemplateModel> {
         return formTemplateDao.forDocument(documentKey).map { it.toModel(json) }
@@ -382,6 +456,38 @@ class DefaultWorkflowRepository(
 
     private suspend fun recordActivity(event: ActivityEventModel) {
         activityEventDao.upsert(event.toEntity(json))
+    }
+
+    private suspend fun requireExportAllowed(documentKey: String, action: String) {
+        val state = enterpriseAdminRepository.loadState()
+        if (!state.adminPolicy.restrictExport) return
+        recordActivity(
+            ActivityEventModel(
+                id = UUID.randomUUID().toString(),
+                documentKey = documentKey,
+                type = ActivityEventType.Exported,
+                actor = actorName(state),
+                summary = "Blocked $action by tenant policy",
+                createdAtEpochMillis = System.currentTimeMillis(),
+                metadata = mapOf("allowed" to "false", "policy" to "restrictExport", "action" to action),
+            ),
+        )
+        throw SecurityException("Export is restricted by tenant policy.")
+    }
+
+    private suspend fun recordExportActivity(documentKey: String, summary: String, metadata: Map<String, String>) {
+        val state = enterpriseAdminRepository.loadState()
+        recordActivity(
+            ActivityEventModel(
+                id = UUID.randomUUID().toString(),
+                documentKey = documentKey,
+                type = ActivityEventType.Exported,
+                actor = actorName(state),
+                summary = summary,
+                createdAtEpochMillis = System.currentTimeMillis(),
+                metadata = metadata + mapOf("allowed" to "true"),
+            ),
+        )
     }
 
     private fun buildCompareReport(

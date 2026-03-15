@@ -17,6 +17,7 @@ enum class ReadAloudStatus {
     Idle,
     Preparing,
     Speaking,
+    Paused,
     Completed,
     Failed,
     Stopped,
@@ -71,6 +72,7 @@ sealed interface SpeechCaptureEvent {
 sealed interface ReadAloudEvent {
     data class Starting(val title: String, val totalSegments: Int) : ReadAloudEvent
     data class SegmentStarted(val index: Int, val totalSegments: Int, val text: String) : ReadAloudEvent
+    data class Paused(val title: String, val index: Int, val totalSegments: Int, val text: String) : ReadAloudEvent
     data class Completed(val title: String) : ReadAloudEvent
     data class Failure(val message: String) : ReadAloudEvent
     data object Stopped : ReadAloudEvent

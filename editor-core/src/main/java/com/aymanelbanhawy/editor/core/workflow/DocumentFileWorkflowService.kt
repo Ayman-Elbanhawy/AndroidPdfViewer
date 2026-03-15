@@ -1,4 +1,4 @@
-package com.aymanelbanhawy.editor.core.workflow
+ï»¿package com.aymanelbanhawy.editor.core.workflow
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -16,6 +16,8 @@ import com.aymanelbanhawy.editor.core.search.PdfBoxTextExtractionService
 import com.aymanelbanhawy.editor.core.search.SearchContentSource
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.rendering.ImageType
+import com.tom_roush.pdfbox.rendering.PDFRenderer as PdfBoxRenderer
 import java.io.File
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -103,7 +105,7 @@ internal class DocumentFileWorkflowService(
                     appendLine(report.summary.summaryText)
                     appendLine()
                     report.pageChanges.forEach { change ->
-                        appendLine("## Page ${change.pageIndex + 1} · ${change.changeType.name}")
+                        appendLine("## Page ${change.pageIndex + 1} ï¿½ ${change.changeType.name}")
                         appendLine(change.summary)
                         if (change.addedLines.isNotEmpty()) {
                             appendLine()
@@ -142,6 +144,23 @@ internal class DocumentFileWorkflowService(
         require(sourceFile.exists()) { "Working copy is missing for image export." }
         outputDirectory.mkdirs()
         val artifacts = mutableListOf<ExportArtifactModel>()
+        val androidArtifacts = runCatching {
+            exportDocumentAsImagesWithAndroidRenderer(document, sourceFile, outputDirectory, format)
+        }.getOrNull().orEmpty()
+        artifacts += androidArtifacts
+        if (artifacts.isEmpty()) {
+            artifacts += exportDocumentAsImagesWithPdfBox(document, sourceFile, outputDirectory, format)
+        }
+        ExportBundleResult(title = "Image Export", artifacts = artifacts)
+    }
+
+    private fun exportDocumentAsImagesWithAndroidRenderer(
+        document: DocumentModel,
+        sourceFile: File,
+        outputDirectory: File,
+        format: ExportImageFormat,
+    ): List<ExportArtifactModel> {
+        val artifacts = mutableListOf<ExportArtifactModel>()
         ParcelFileDescriptor.open(sourceFile, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
             PdfRenderer(descriptor).use { renderer ->
                 for (pageIndex in 0 until renderer.pageCount) {
@@ -152,27 +171,57 @@ internal class DocumentFileWorkflowService(
                             Bitmap.Config.ARGB_8888,
                         )
                         page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                        val extension = if (format == ExportImageFormat.Png) "png" else "jpg"
-                        val file = File(outputDirectory, "${document.documentRef.displayName.removeSuffix(".pdf")}_page_${pageIndex + 1}.$extension")
-                        file.outputStream().use { output ->
-                            bitmap.compress(
-                                if (format == ExportImageFormat.Png) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG,
-                                if (format == ExportImageFormat.Png) 100 else 88,
-                                output,
-                            )
-                        }
-                        bitmap.recycle()
-                        artifacts += ExportArtifactModel(
-                            path = file.absolutePath,
-                            displayName = file.name,
-                            mimeType = if (format == ExportImageFormat.Png) "image/png" else "image/jpeg",
-                            pageIndex = pageIndex,
-                        )
+                        artifacts += writeRenderedPage(document, outputDirectory, format, pageIndex, bitmap)
                     }
                 }
             }
         }
-        ExportBundleResult(title = "Image Export", artifacts = artifacts)
+        return artifacts
+    }
+
+    private fun exportDocumentAsImagesWithPdfBox(
+        document: DocumentModel,
+        sourceFile: File,
+        outputDirectory: File,
+        format: ExportImageFormat,
+    ): List<ExportArtifactModel> {
+        val artifacts = mutableListOf<ExportArtifactModel>()
+        PDDocument.load(sourceFile).use { pdfDocument ->
+            val renderer = PdfBoxRenderer(pdfDocument)
+            for (pageIndex in 0 until pdfDocument.numberOfPages) {
+                val bitmap = renderer.renderImageWithDPI(pageIndex, 144f, ImageType.RGB)
+                artifacts += writeRenderedPage(document, outputDirectory, format, pageIndex, bitmap)
+            }
+        }
+        return artifacts
+    }
+
+    private fun writeRenderedPage(
+        document: DocumentModel,
+        outputDirectory: File,
+        format: ExportImageFormat,
+        pageIndex: Int,
+        bitmap: Bitmap,
+    ): ExportArtifactModel {
+        val extension = if (format == ExportImageFormat.Png) "png" else "jpg"
+        val file = File(outputDirectory, "${document.documentRef.displayName.removeSuffix(".pdf")}_page_${pageIndex + 1}.$extension")
+        try {
+            file.outputStream().use { output ->
+                bitmap.compress(
+                    if (format == ExportImageFormat.Png) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG,
+                    if (format == ExportImageFormat.Png) 100 else 88,
+                    output,
+                )
+            }
+        } finally {
+            bitmap.recycle()
+        }
+        return ExportArtifactModel(
+            path = file.absolutePath,
+            displayName = file.name,
+            mimeType = if (format == ExportImageFormat.Png) "image/png" else "image/jpeg",
+            pageIndex = pageIndex,
+        )
     }
 
     suspend fun createPdfFromImages(imageFiles: List<File>, displayName: String): CreatedPdfResult = withContext(ioDispatcher) {

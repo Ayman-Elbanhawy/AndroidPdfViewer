@@ -82,6 +82,8 @@ fun EditorScreenRoute(
         onCancelVoicePromptCapture = callbacks.onCancelVoicePromptCapture,
         onReadCurrentPageAloud = callbacks.onReadCurrentPageAloud,
         onReadSelectionAloud = callbacks.onReadSelectionAloud,
+        onPauseReadAloud = callbacks.onPauseReadAloud,
+        onResumeReadAloud = callbacks.onResumeReadAloud,
         onStopReadAloud = callbacks.onStopReadAloud,
         onAssistantAudioEnabledChanged = callbacks.onAssistantAudioEnabledChanged,
         onNextSearchHit = callbacks.onNextSearchHit,

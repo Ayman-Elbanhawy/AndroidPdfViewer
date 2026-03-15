@@ -19,13 +19,17 @@ jobs:
       - name: Production source grep gate
         run: |
           grep -RIn "Fake[A-Za-z0-9_]*\|NoOp[A-Za-z0-9_]*\|InMemory[A-Za-z0-9_]*\|Placeholder[A-Za-z0-9_]*\|TODO\|example.invalid" ai-assistant/src/main app/src/main editor-core/src/main android-pdf-viewer/src/main && exit 1 || true
+          grep -RIn "SpeechRecognizer\|TextToSpeech\|MediaRecorder\|voice\|playback\|audio" ai-assistant/src/main app/src/main editor-core/src/main
+          grep -RIn "policy\|retention\|interrupt\|permission" ai-assistant/src/main app/src/main editor-core/src/main
           grep -RIn "pageedits\\.json\|sidecar" ai-assistant/src/main app/src/main editor-core/src/main android-pdf-viewer/src/main && exit 1 || true
           grep -RIn "contentDescription\|semantics\|TalkBack\|theme\|colorScheme\|icon\|contrast\|reading mode" app/src/main app/src/androidTest app/src/test || true
+          grep -RIn "snapshot\|screenshot\|accessibility\|visual" .github/workflows app scripts docs || true
+          grep -RIn "zPDF\|pdf-editor-android-app\|MIT" docs app/src/main .github || true
           grep -RIn "validateReleaseReadiness\|smoke\|benchmark\|migration" .github/workflows app build.gradle* scripts docs || true
-          git grep -nE "LEGACY_COMPATIBILITY_SUFFIX|pageedits\\.json|sidecar" -- editor-core/src/main/java/com/aymanelbanhawy/editor/core/write editor-core/src/main/java/com/aymanelbanhawy/editor/core/repository app/src/main android-pdf-viewer/src/main && exit 1 || true
-          git grep -nE "LEGACY_COMPATIBILITY_SUFFIX|pageedits\\.json|sidecar" -- editor-core/src/main/java/com/aymanelbanhawy/editor/core/migration && true
-      - name: Release readiness task
-        run: ./gradlew clean releaseReadinessEvidence
+          git grep -nE "legacyCompatibilityMigrated|LEGACY_COMPATIBILITY_SUFFIX|pageedits\\.json|sidecar|\\.annotations\\.json" -- editor-core/src/main/java/com/aymanelbanhawy/editor/core/write editor-core/src/main/java/com/aymanelbanhawy/editor/core/repository app/src/main android-pdf-viewer/src/main && exit 1 || true
+          git grep -nE "legacyCompatibilityMigrated|LEGACY_COMPATIBILITY_SUFFIX|pageedits\\.json|sidecar|\\.annotations\\.json" -- editor-core/src/main/java/com/aymanelbanhawy/editor/core/migration editor-core/src/main/java/com/aymanelbanhawy/editor/core/compat || true
+      - name: Release readiness precheck
+        run: ./gradlew clean :app:validateReleaseReadiness :app:writeEngineIsolationAudit :app:audioEvidenceBundle :editor-core:workflowEvidenceBundle
       - name: Additional lint coverage
         run: ./gradlew :app:lintDevDebug :ai-assistant:lint :editor-core:lint
       - name: Targeted compare export and protection tests
@@ -37,9 +41,11 @@ jobs:
       - name: Targeted migration and upgrade safety tests
         run: ./gradlew :editor-core:test --tests "*DefaultCoreMigrationRepositoryTest" --tests "*PdfWriteEnginePersistenceTest" --tests "*AiProviderNormalizationTest"
       - name: Targeted AI audio and voice comment tests
-        run: ./gradlew :ai-assistant:test --tests "*ProviderSelectionEngineTest" --tests "*ProviderRuntimeErrorHandlingTest" --tests "*MultiDocumentGroundingTest" --tests "*AssistantAudioStateTransitionsTest" :editor-core:test --tests "*DefaultCollaborationRepositorySyncTest"
+        run: ./gradlew :ai-assistant:test --tests "*ProviderSelectionEngineTest" --tests "*ProviderRuntimeErrorHandlingTest" --tests "*MultiDocumentGroundingTest" --tests "*AssistantAudioStateTransitionsTest" :editor-core:test --tests "*DefaultCollaborationRepositorySyncTest" :app:testProdDebugUnitTest --tests "*AudioFeatureEvidenceBundleTest"
       - name: Screenshot and accessibility evidence build
         run: ./gradlew :app:assembleProdDebugAndroidTest
+      - name: Source inspiration evidence build
+        run: ./gradlew :app:sourceInspirationBundle
       - name: Generate SBOM and license inventory
         run: ./gradlew :app:generateSbom :app:generateLicenseReport
       - name: Upload reports
@@ -48,6 +54,11 @@ jobs:
           name: release-reports
           path: |
             app/build/reports/release/**
+            app/build/reports/release/audio-evidence/**
+            app/build/reports/release/quick-tools-proof/**
+            app/build/reports/release/source-inspiration/**
+            app/build/reports/release/write-engine-isolation-audit.json
+            editor-core/build/reports/workflow-evidence/**
             app/build/reports/lint-results-*.html
             app/build/reports/lint-results-*.xml
             app/build/reports/lint-results-*.sarif
@@ -65,13 +76,13 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Build prod debug APK and tests
         run: ./gradlew :app:assembleProdDebug :app:assembleProdDebugAndroidTest
-      - name: Run prod debug assistant, collaboration, search, snapshots, and editor UI tests
+      - name: Run prod debug assistant, collaboration, search, snapshots, quick tools, and editor UI tests
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
           arch: x86_64
           profile: pixel_7
-          script: ./gradlew :app:connectedProdDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.aymanelbanhawy.enterprisepdf.app.assistant.AssistantProviderSettingsTest,com.aymanelbanhawy.enterprisepdf.app.collaboration.CollaborationReviewFlowTest,com.aymanelbanhawy.enterprisepdf.app.scan.OcrScanImportFlowTest,com.aymanelbanhawy.enterprisepdf.app.visual.VisualSnapshotTest,com.aymanelbanhawy.enterprisepdf.app.editor.EditorScreenTest
+          script: ./gradlew :app:connectedProdDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.aymanelbanhawy.enterprisepdf.app.assistant.AssistantProviderSettingsTest,com.aymanelbanhawy.enterprisepdf.app.collaboration.CollaborationReviewFlowTest,com.aymanelbanhawy.enterprisepdf.app.scan.OcrScanImportFlowTest,com.aymanelbanhawy.enterprisepdf.app.visual.VisualSnapshotTest,com.aymanelbanhawy.enterprisepdf.app.quicktools.QuickToolsInstrumentationTest,com.aymanelbanhawy.enterprisepdf.app.editor.EditorScreenTest
       - name: Run prod debug smoke and benchmark tests
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -79,6 +90,23 @@ jobs:
           arch: x86_64
           profile: pixel_7
           script: ./gradlew :app:connectedProdDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.aymanelbanhawy.enterprisepdf.app.smoke.CriticalWorkflowSmokeTest,com.aymanelbanhawy.enterprisepdf.app.diagnostics.LargeDocumentOpenBenchmarkTest
+      - name: Build visual proof and release readiness evidence
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_7
+          script: ./gradlew :app:visualProofBundle :app:quickToolsEvidenceBundle :app:releaseReadinessEvidence
+      - name: Upload visual proof artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-proof-artifacts
+          path: |
+            app/build/reports/release/visual-proof/**
+            app/build/reports/release/quick-tools-proof/**
+            app/build/reports/release/source-inspiration/**
+            app/build/reports/androidTests/**
 
   static-analysis:
     runs-on: ubuntu-latest

@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.core.net.toUri
+import com.aymanelbanhawy.editor.core.compat.FileLegacyAnnotationCompatibilityStore
+import com.aymanelbanhawy.editor.core.compat.LegacyAnnotationCompatibilityStore
 import com.aymanelbanhawy.editor.core.data.DocumentSecurityDao
 import com.aymanelbanhawy.editor.core.data.DocumentSecurityEntity
 import com.aymanelbanhawy.editor.core.data.DraftDao
@@ -74,7 +76,6 @@ import java.util.UUID
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 interface DocumentRepository {
@@ -110,6 +111,7 @@ class DefaultDocumentRepository(
     },
     private val ocrSessionStore: OcrSessionStore = OcrSessionStore(json),
     private val legacyEditCompatibilityBridge: LegacyEditCompatibilityBridge = FileLegacyEditCompatibilityBridge(json),
+    private val legacyAnnotationCompatibilityStore: LegacyAnnotationCompatibilityStore = FileLegacyAnnotationCompatibilityStore(json),
     private val digitalSignatureService: DigitalSignatureService? = null,
     private val securityRepository: SecurityRepository? = null,
     private val diagnosticsRepository: RuntimeDiagnosticsRepository? = null,
@@ -150,7 +152,7 @@ class DefaultDocumentRepository(
         }
         legacyEditCompatibilityBridge.upgradeIfNeeded(opened.documentRef)
         val editableState = pdfWriteEngine.load(opened.documentRef)
-        val legacyAnnotations = loadLegacyAnnotationCompatibility(opened.documentRef)
+        val legacyAnnotations = legacyAnnotationCompatibilityStore.loadAnnotations(opened.documentRef)
         val document = securityProcessor.decorateOpenedDocument(
             opened.copy(
                 pages = opened.pages.map { page ->
@@ -496,39 +498,7 @@ class DefaultDocumentRepository(
         val dir = File(context.filesDir, "drafts").apply { mkdirs() }
         return File(dir, "$sessionId.json")
     }
-    private fun loadLegacyAnnotationCompatibility(documentRef: PdfDocumentRef): Map<Int, List<AnnotationModel>> {
-        val file = resolveLegacyAnnotationCompatibilityFile(documentRef) ?: return emptyMap()
-        if (!file.exists()) return emptyMap()
-        val payload = runCatching {
-            json.decodeFromString(LegacyAnnotationCompatibilityPayload.serializer(), file.readText())
-        }.getOrNull() ?: return emptyMap()
-        return payload.annotations.groupBy { it.pageIndex }
-    }
-
-    private fun resolveLegacyAnnotationCompatibilityFile(documentRef: PdfDocumentRef): File? {
-        val sourceFile = when (documentRef.sourceType) {
-            DocumentSourceType.File -> File(documentRef.sourceKey)
-            DocumentSourceType.Uri, DocumentSourceType.Asset, DocumentSourceType.Memory -> File(documentRef.workingCopyPath)
-        }
-        val explicitCompatibilityFile = File(sourceFile.absolutePath + ".annotations.json")
-        if (explicitCompatibilityFile.exists()) return explicitCompatibilityFile
-        val workingCompatibilityFile = File(documentRef.workingCopyPath + ".annotations.json")
-        if (workingCompatibilityFile.exists()) return workingCompatibilityFile
-        return explicitCompatibilityFile.takeIf { it.parentFile?.exists() == true }
-            ?: workingCompatibilityFile.takeIf { it.parentFile?.exists() == true }
-    }
-
 }
-
-
-
-@Serializable
-private data class LegacyAnnotationCompatibilityPayload(
-    val documentKey: String,
-    val exportMode: AnnotationExportMode,
-    val annotations: List<AnnotationModel>,
-    val updatedAtEpochMillis: Long,
-)
 
 
 

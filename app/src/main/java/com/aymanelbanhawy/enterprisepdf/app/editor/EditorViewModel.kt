@@ -14,6 +14,7 @@ import com.aymanelbanhawy.aiassistant.core.ReadAloudRequest
 import com.aymanelbanhawy.aiassistant.core.ReadAloudStatus
 import com.aymanelbanhawy.aiassistant.core.SpeechCaptureEvent
 import com.aymanelbanhawy.aiassistant.core.VoiceCaptureStatus
+import com.aymanelbanhawy.aiassistant.core.readAloudPaused
 import com.aymanelbanhawy.aiassistant.core.readAloudStopped
 import com.aymanelbanhawy.aiassistant.core.reduceReadAloudEvent
 import com.aymanelbanhawy.aiassistant.core.voiceCaptureCancelled
@@ -129,6 +130,7 @@ import com.aymanelbanhawy.editor.core.runtime.RuntimeLogLevel
 import com.aymanelbanhawy.editor.core.runtime.RuntimeEventCategory
 import com.aymanelbanhawy.editor.core.runtime.RuntimeDiagnosticsSnapshot
 import com.aymanelbanhawy.enterprisepdf.app.AppContainer
+import com.aymanelbanhawy.enterprisepdf.app.audio.resolveAudioFeatureCapabilities
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -289,6 +291,9 @@ class EditorViewModel(
     private var ocrObservationJob: Job? = null
     private var voiceCaptureJob: Job? = null
     private var readAloudJob: Job? = null
+    private var activeReadAloudSession: ActiveReadAloudSession? = null
+    private var lastSpokenAssistantResultEpochMillis: Long? = null
+    private var suppressReadAloudStopUpdate = false
 
     val uiState: StateFlow<EditorUiState> = combine(
         session.state,
@@ -527,6 +532,7 @@ class EditorViewModel(
     fun cancelAssistantRequest() {
         viewModelScope.launch {
             appContainer.aiAssistantRepository.cancelActiveRequest()
+            stopReadAloud(clearSession = true)
             syncAssistantStateFromRepository()
         }
     }
@@ -536,6 +542,7 @@ class EditorViewModel(
         viewModelScope.launch {
             appContainer.aiAssistantRepository.askPdf(document, assistantState.value.prompt.ifBlank { "What should I know about this PDF?" }, selectedTextSelection.value, entitlements.value, enterpriseState.value)
             syncAssistantStateFromRepository()
+            speakLatestAssistantResultIfEligible()
         }
     }
 
@@ -544,6 +551,7 @@ class EditorViewModel(
         viewModelScope.launch {
             appContainer.aiAssistantRepository.summarizeDocument(document, entitlements.value, enterpriseState.value)
             syncAssistantStateFromRepository()
+            speakLatestAssistantResultIfEligible()
         }
     }
 
@@ -552,6 +560,7 @@ class EditorViewModel(
         viewModelScope.launch {
             appContainer.aiAssistantRepository.summarizePage(document, session.state.value.selection.selectedPageIndex, entitlements.value, enterpriseState.value)
             syncAssistantStateFromRepository()
+            speakLatestAssistantResultIfEligible()
         }
     }
 
@@ -560,6 +569,7 @@ class EditorViewModel(
         viewModelScope.launch {
             appContainer.aiAssistantRepository.extractActionItems(document, entitlements.value, enterpriseState.value)
             syncAssistantStateFromRepository()
+            speakLatestAssistantResultIfEligible()
         }
     }
 
@@ -568,6 +578,7 @@ class EditorViewModel(
         viewModelScope.launch {
             appContainer.aiAssistantRepository.explainSelection(document, selectedTextSelection.value, entitlements.value, enterpriseState.value)
             syncAssistantStateFromRepository()
+            speakLatestAssistantResultIfEligible()
         }
     }
 
@@ -576,6 +587,7 @@ class EditorViewModel(
         viewModelScope.launch {
             appContainer.aiAssistantRepository.semanticSearch(document, assistantState.value.prompt.ifBlank { searchQuery.value }, entitlements.value, enterpriseState.value)
             syncAssistantStateFromRepository()
+            speakLatestAssistantResultIfEligible()
         }
     }
 
@@ -583,6 +595,7 @@ class EditorViewModel(
         viewModelScope.launch {
             appContainer.aiAssistantRepository.askAcrossWorkspace(session.state.value.document, assistantState.value.prompt.ifBlank { "What are the key findings across these documents?" }, entitlements.value, enterpriseState.value)
             syncAssistantStateFromRepository()
+            speakLatestAssistantResultIfEligible()
         }
     }
 
@@ -590,6 +603,7 @@ class EditorViewModel(
         viewModelScope.launch {
             appContainer.aiAssistantRepository.summarizeWorkspace(session.state.value.document, entitlements.value, enterpriseState.value)
             syncAssistantStateFromRepository()
+            speakLatestAssistantResultIfEligible()
         }
     }
 
@@ -597,6 +611,7 @@ class EditorViewModel(
         viewModelScope.launch {
             appContainer.aiAssistantRepository.compareAndSummarizeWorkspace(session.state.value.document, entitlements.value, enterpriseState.value)
             syncAssistantStateFromRepository()
+            speakLatestAssistantResultIfEligible()
         }
     }
 
@@ -651,14 +666,15 @@ class EditorViewModel(
     }
 
     fun startVoicePromptCapture() {
-        if (!isAudioFeatureAllowed()) {
-            assistantAudioState.value = assistantAudioState.value.copy(enabled = false, reason = "Audio features are disabled by policy.")
+        val capabilities = currentAudioCapabilities()
+        if (!capabilities.voicePromptCaptureAllowed) {
+            assistantAudioState.value = assistantAudioState.value.copy(enabled = false, reason = capabilities.voicePromptReason())
             syncAssistantStateFromRepository()
             return
         }
         voiceCaptureJob?.cancel()
         voiceCaptureJob = viewModelScope.launch {
-            appContainer.readAloudEngine.stop()
+            pauseReadAloudForInterruption()
             assistantAudioState.value = assistantAudioState.value.beginVoiceCapture()
             syncAssistantStateFromRepository()
             appContainer.speechCaptureEngine.startCapture().collect { event ->
@@ -706,15 +722,44 @@ class EditorViewModel(
         startReadAloud("Selection", selection.text)
     }
 
-    fun stopReadAloud() {
+    fun pauseReadAloud() {
+        val session = activeReadAloudSession ?: return
+        val currentIndex = assistantAudioState.value.readAloud.progress.currentIndex.takeIf { it >= 0 } ?: session.startIndex
+        activeReadAloudSession = session.copy(startIndex = currentIndex)
+        suppressReadAloudStopUpdate = true
         appContainer.readAloudEngine.stop()
+        assistantAudioState.value = assistantAudioState.value.readAloudPaused(
+            title = session.title,
+            index = currentIndex,
+            totalSegments = session.segments.size,
+            text = session.segments.getOrElse(currentIndex) { session.segments.lastOrNull().orEmpty() },
+        )
+        syncAssistantStateFromRepository()
+    }
+
+    fun resumeReadAloud() {
+        val session = activeReadAloudSession ?: return
+        if (assistantAudioState.value.readAloud.status != ReadAloudStatus.Paused) return
+        startReadAloudSession(session)
+    }
+
+    fun stopReadAloud() {
+        stopReadAloud(clearSession = true)
+    }
+
+    private fun stopReadAloud(clearSession: Boolean) {
+        appContainer.readAloudEngine.stop()
+        if (clearSession) {
+            activeReadAloudSession = null
+        }
         assistantAudioState.value = assistantAudioState.value.readAloudStopped()
         syncAssistantStateFromRepository()
     }
 
     fun startVoiceCommentForNewThread() {
-        if (!isAudioFeatureAllowed()) {
-            localEvents.tryEmit(EditorSessionEvent.UserMessage("Audio features are disabled by policy"))
+        val capabilities = currentAudioCapabilities()
+        if (!capabilities.voiceCommentsAllowed) {
+            localEvents.tryEmit(EditorSessionEvent.UserMessage(capabilities.voiceCommentReason() ?: "Voice comments are disabled by policy"))
             return
         }
         val attachment = runCatching { appContainer.voiceCommentRuntime.startRecording() }.getOrElse {
@@ -740,8 +785,9 @@ class EditorViewModel(
     }
 
     fun startVoiceCommentReply(threadId: String) {
-        if (!isAudioFeatureAllowed()) {
-            localEvents.tryEmit(EditorSessionEvent.UserMessage("Audio features are disabled by policy"))
+        val capabilities = currentAudioCapabilities()
+        if (!capabilities.voiceCommentsAllowed) {
+            localEvents.tryEmit(EditorSessionEvent.UserMessage(capabilities.voiceCommentReason() ?: "Voice comments are disabled by policy"))
             return
         }
         val file = runCatching { appContainer.voiceCommentRuntime.startRecording() }.getOrElse {
@@ -768,7 +814,18 @@ class EditorViewModel(
         pendingReplyVoiceComments.value = pendingReplyVoiceComments.value - threadId
     }
 
+    fun cancelAllPendingVoiceComments() {
+        appContainer.voiceCommentRuntime.cancelRecording()
+        pendingThreadVoiceComment.value = null
+        pendingReplyVoiceComments.value = emptyMap()
+    }
+
     fun playVoiceComment(commentId: String) {
+        val capabilities = currentAudioCapabilities()
+        if (!capabilities.voiceCommentsAllowed || !capabilities.speechOutputPolicyEnabled) {
+            localEvents.tryEmit(EditorSessionEvent.UserMessage(capabilities.voiceCommentReason() ?: capabilities.readAloudReason() ?: "Voice comment playback is unavailable"))
+            return
+        }
         val comment = reviewThreads.value.flatMap { it.comments }.firstOrNull { it.id == commentId } ?: return
         val attachment = comment.voiceAttachment ?: return
         runCatching { appContainer.voiceCommentRuntime.startPlayback(attachment) }
@@ -1494,6 +1551,19 @@ class EditorViewModel(
     fun selectPage(index: Int) { selectedPageIndexes.value = selectedPageIndexes.value.toggle(index) }
     fun clearPageSelection() { selectedPageIndexes.value = emptySet() }
     fun movePage(fromIndex: Int, toIndex: Int) { session.execute(ReorderPagesCommand(fromIndex, toIndex)); refreshThumbnailsAsync() }
+    fun moveSelectionBackward() {
+        val anchor = effectivePageSelection().minOrNull() ?: return
+        if (anchor > 0) {
+            movePage(anchor, anchor - 1)
+        }
+    }
+    fun moveSelectionForward() {
+        val document = session.state.value.document ?: return
+        val anchor = effectivePageSelection().maxOrNull() ?: return
+        if (anchor < document.pageCount - 1) {
+            movePage(anchor, anchor + 1)
+        }
+    }
     fun rotateSelectedPages() { effectivePageSelection().takeIf { it.isNotEmpty() }?.let { session.execute(BatchRotatePagesCommand(it, 90)); refreshThumbnailsAsync() } }
     fun deleteSelectedPages() { effectivePageSelection().takeIf { it.isNotEmpty() }?.let { session.execute(DeletePagesCommand(it)); selectedPageIndexes.value = emptySet(); refreshThumbnailsAsync() } }
     fun duplicateSelectedPages() { effectivePageSelection().toList().sorted().takeIf { it.isNotEmpty() }?.let { session.execute(DuplicatePagesCommand(it)); refreshThumbnailsAsync() } }
@@ -2045,21 +2115,18 @@ class EditorViewModel(
         isSearchIndexing.value = false
     }
 
-    private fun isAudioFeatureAllowed(): Boolean {
-        return enterpriseState.value.adminPolicy.aiEnabled && enterpriseState.value.adminPolicy.audioFeaturesEnabled
-    }
-
     private suspend fun refreshAssistantAudioAvailability() {
-        val allowed = isAudioFeatureAllowed() && assistantState.value.settings.voicePromptCaptureEnabled
+        val capabilities = currentAudioCapabilities()
         assistantAudioState.value = assistantAudioState.value.copy(
-            enabled = allowed,
-            reason = if (allowed) null else "Audio or AI features are disabled by enterprise policy.",
+            enabled = capabilities.assistantAudioEnabled(),
+            reason = capabilities.assistantAudioReason(),
         )
         syncAssistantStateFromRepository()
     }
 
     private fun syncAssistantStateFromRepository() {
         val repositoryState = appContainer.aiAssistantRepository.state.value
+        val capabilities = currentAudioCapabilities(repositoryState.settings)
         val effectiveAvailability = when {
             !enterpriseState.value.adminPolicy.aiEnabled -> AssistantAvailability(false, "Tenant policy has disabled AI assistance.")
             entitlements.value.features.contains(FeatureFlag.Ai) || enterpriseState.value.plan == LicensePlan.Premium || enterpriseState.value.plan == LicensePlan.Enterprise -> AssistantAvailability(true)
@@ -2067,23 +2134,119 @@ class EditorViewModel(
         }
         assistantState.value = repositoryState.copy(
             availability = effectiveAvailability,
-            audio = assistantAudioState.value,
+            audio = assistantAudioState.value.copy(
+                enabled = capabilities.assistantAudioEnabled(),
+                reason = capabilities.assistantAudioReason(),
+            ),
         )
     }
 
     private fun startReadAloud(title: String, text: String) {
-        if (!isAudioFeatureAllowed()) {
-            assistantAudioState.value = assistantAudioState.value.copy(enabled = false, reason = "Audio features are disabled by policy.")
+        val capabilities = currentAudioCapabilities()
+        if (!capabilities.readAloudAllowed) {
+            assistantAudioState.value = assistantAudioState.value.copy(enabled = false, reason = capabilities.readAloudReason())
             syncAssistantStateFromRepository()
+            return
+        }
+        val segments = splitReadAloudSegments(text)
+        activeReadAloudSession = ActiveReadAloudSession(title = title, segments = segments, startIndex = 0)
+        startReadAloudSession(requireNotNull(activeReadAloudSession))
+    }
+
+    private fun startReadAloudSession(sessionState: ActiveReadAloudSession) {
+        val remainingSegments = sessionState.segments.drop(sessionState.startIndex)
+        if (remainingSegments.isEmpty()) {
+            assistantAudioState.value = assistantAudioState.value.readAloudStopped()
+            syncAssistantStateFromRepository()
+            activeReadAloudSession = null
             return
         }
         readAloudJob?.cancel()
         readAloudJob = viewModelScope.launch {
             appContainer.speechCaptureEngine.cancelCapture()
-            appContainer.readAloudEngine.speak(ReadAloudRequest(title = title, text = text)).collect { event ->
-                assistantAudioState.value = assistantAudioState.value.reduceReadAloudEvent(event)
+            appContainer.readAloudEngine.speak(
+                ReadAloudRequest(
+                    title = sessionState.title,
+                    text = remainingSegments.joinToString(separator = " "),
+                ),
+            ).collect { event ->
+                if (event is com.aymanelbanhawy.aiassistant.core.ReadAloudEvent.Stopped && suppressReadAloudStopUpdate) {
+                    suppressReadAloudStopUpdate = false
+                    return@collect
+                }
+                assistantAudioState.value = assistantAudioState.value.reduceReadAloudEvent(
+                    remapReadAloudEvent(event, sessionState),
+                )
+                if (event is com.aymanelbanhawy.aiassistant.core.ReadAloudEvent.SegmentStarted) {
+                    activeReadAloudSession = sessionState.copy(startIndex = sessionState.startIndex + event.index)
+                }
+                if (event is com.aymanelbanhawy.aiassistant.core.ReadAloudEvent.Completed || event is com.aymanelbanhawy.aiassistant.core.ReadAloudEvent.Stopped || event is com.aymanelbanhawy.aiassistant.core.ReadAloudEvent.Failure) {
+                    activeReadAloudSession = null
+                }
                 syncAssistantStateFromRepository()
             }
+        }
+    }
+
+    private fun currentAudioCapabilities(settings: com.aymanelbanhawy.aiassistant.core.AssistantSettings = assistantState.value.settings) =
+        resolveAudioFeatureCapabilities(
+            policy = enterpriseState.value.adminPolicy,
+            privacySettings = enterpriseState.value.privacySettings,
+            assistantSettings = settings,
+        )
+
+    private suspend fun speakLatestAssistantResultIfEligible() {
+        val latestResult = assistantState.value.latestResult ?: return
+        val capabilities = currentAudioCapabilities()
+        if (!capabilities.spokenAssistantResponsesAllowed) return
+        if (lastSpokenAssistantResultEpochMillis == latestResult.generatedAtEpochMillis) return
+        lastSpokenAssistantResultEpochMillis = latestResult.generatedAtEpochMillis
+        startReadAloud(latestResult.headline, buildString {
+            append(latestResult.headline)
+            if (latestResult.body.isNotBlank()) {
+                append(". ")
+                append(latestResult.body)
+            }
+        })
+    }
+
+    private fun pauseReadAloudForInterruption() {
+        if (assistantAudioState.value.readAloud.status == ReadAloudStatus.Preparing || assistantAudioState.value.readAloud.status == ReadAloudStatus.Speaking) {
+            pauseReadAloud()
+        }
+    }
+
+    private fun splitReadAloudSegments(text: String): List<String> {
+        return text
+            .split(Regex("(?<=[.!?])\\s+|\\n+"))
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .ifEmpty { listOf(text.ifBlank { "No text available." }) }
+    }
+
+    private fun remapReadAloudEvent(
+        event: com.aymanelbanhawy.aiassistant.core.ReadAloudEvent,
+        sessionState: ActiveReadAloudSession,
+    ): com.aymanelbanhawy.aiassistant.core.ReadAloudEvent {
+        return when (event) {
+            is com.aymanelbanhawy.aiassistant.core.ReadAloudEvent.Starting -> com.aymanelbanhawy.aiassistant.core.ReadAloudEvent.Starting(
+                title = sessionState.title,
+                totalSegments = sessionState.segments.size,
+            )
+            is com.aymanelbanhawy.aiassistant.core.ReadAloudEvent.SegmentStarted -> com.aymanelbanhawy.aiassistant.core.ReadAloudEvent.SegmentStarted(
+                index = sessionState.startIndex + event.index,
+                totalSegments = sessionState.segments.size,
+                text = event.text,
+            )
+            is com.aymanelbanhawy.aiassistant.core.ReadAloudEvent.Paused -> com.aymanelbanhawy.aiassistant.core.ReadAloudEvent.Paused(
+                title = sessionState.title,
+                index = sessionState.startIndex + event.index,
+                totalSegments = sessionState.segments.size,
+                text = event.text,
+            )
+            is com.aymanelbanhawy.aiassistant.core.ReadAloudEvent.Completed -> com.aymanelbanhawy.aiassistant.core.ReadAloudEvent.Completed(sessionState.title)
+            is com.aymanelbanhawy.aiassistant.core.ReadAloudEvent.Failure -> event
+            com.aymanelbanhawy.aiassistant.core.ReadAloudEvent.Stopped -> com.aymanelbanhawy.aiassistant.core.ReadAloudEvent.Stopped
         }
     }
     private suspend fun refreshAssistantData() {
@@ -2251,6 +2414,12 @@ class EditorViewModel(
 }
 
 private fun Set<Int>.toggle(index: Int): Set<Int> = if (index in this) this - index else this + index
+
+private data class ActiveReadAloudSession(
+    val title: String,
+    val segments: List<String>,
+    val startIndex: Int,
+)
 
 
 

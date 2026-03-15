@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -73,21 +74,36 @@ private fun EnterprisePdfAppFrame(content: @Composable () -> Unit) {
     val scheme = MaterialTheme.colorScheme
     val backgroundBrush = Brush.verticalGradient(
         colors = listOf(
+            scheme.primaryContainer.copy(alpha = 0.2f),
             scheme.background,
-            scheme.surface,
-            scheme.surfaceVariant.copy(alpha = 0.72f),
+            scheme.surfaceVariant.copy(alpha = 0.82f),
+        ),
+    )
+    val glowBrush = Brush.radialGradient(
+        colors = listOf(
+            scheme.tertiaryContainer.copy(alpha = 0.24f),
+            Color.Transparent,
         ),
     )
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(backgroundBrush)
-            .padding(10.dp),
+            .padding(12.dp),
     ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(10.dp)
+                .background(glowBrush, RoundedCornerShape(34.dp)),
+        )
         Surface(
             modifier = Modifier.fillMaxSize(),
-            color = Color.Transparent,
+            color = scheme.surface.copy(alpha = 0.74f),
             contentColor = scheme.onBackground,
+            shape = RoundedCornerShape(34.dp),
+            tonalElevation = 4.dp,
+            shadowElevation = 10.dp,
         ) {
             content()
         }

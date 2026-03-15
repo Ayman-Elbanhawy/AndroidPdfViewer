@@ -6,6 +6,7 @@ import com.aymanelbanhawy.editor.core.collaboration.CollaborationConflictResolve
 import com.aymanelbanhawy.editor.core.collaboration.CollaborationCredentialStore
 import com.aymanelbanhawy.editor.core.collaboration.CollaborationRemoteRegistry
 import com.aymanelbanhawy.editor.core.collaboration.CollaborationRepository
+import com.aymanelbanhawy.editor.core.compat.FileLegacyAnnotationCompatibilityStore
 import com.aymanelbanhawy.editor.core.collaboration.DefaultCollaborationRepository
 import com.aymanelbanhawy.editor.core.connectors.ConnectorRepository
 import com.aymanelbanhawy.editor.core.connectors.DefaultConnectorRepository
@@ -69,6 +70,7 @@ class EditorCoreContainer(
     }
     private val ocrSessionStore = OcrSessionStore(json, database.ocrJobDao())
     private val legacyEditCompatibilityBridge = FileLegacyEditCompatibilityBridge(json)
+    private val legacyAnnotationCompatibilityStore = FileLegacyAnnotationCompatibilityStore(json)
     private val secureFileCipher = AndroidSecureFileCipher(appContext)
     private val enterpriseCredentialStore = EnterpriseCredentialStore(appContext, json)
     private val enterpriseRemoteRegistry = EnterpriseRemoteRegistry(appContext, json)
@@ -143,6 +145,7 @@ class EditorCoreContainer(
         secureFileCipher = secureFileCipher,
         ocrSessionStore = ocrSessionStore,
         legacyEditCompatibilityBridge = legacyEditCompatibilityBridge,
+        legacyAnnotationCompatibilityStore = legacyAnnotationCompatibilityStore,
         json = json,
         digitalSignatureService = digitalSignatureService,
         securityRepository = securityRepository,

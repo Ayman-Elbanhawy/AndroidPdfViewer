@@ -131,6 +131,7 @@ class PdfWriteEnginePersistenceTest {
         assertThat(File(destination.absolutePath + ".mutations.json").exists()).isTrue()
         assertThat(File(destination.absolutePath + ".mutationlog.json").exists()).isTrue()
         assertThat(File(destination.absolutePath + FileLegacyEditCompatibilityBridge.legacySuffix()).exists()).isFalse()
+        assertThat(File(destination.absolutePath + ".mutations.json").readText()).doesNotContain("legacyCompatibilityMigrated")
         assertThat(result.structuralMutationApplied).isTrue()
         assertThat(result.executionMode).isEqualTo(SaveExecutionMode.SaveAs)
     }
@@ -141,7 +142,7 @@ class PdfWriteEnginePersistenceTest {
         val sessionFile = File(existingPdf.absolutePath + ".mutations.json")
         sessionFile.writeText(
             """
-            {"schemaVersion":2,"documentKey":"${existingPdf.absolutePath.replace("\\", "\\\\")}","exportMode":"Editable","editObjects":[],"transactionId":"original","updatedAtEpochMillis":1,"legacyCompatibilityMigrated":false,"integrity":"Verified","checksumSha256":"4f53cda18c2baa0c0354bb5f9a3ecbe5ed7c6d8fd65f4d4d7f6d1d2a2f1b0f8a"}
+            {"schemaVersion":2,"documentKey":"${existingPdf.absolutePath.replace("\\", "\\\\")}","exportMode":"Editable","editObjects":[],"transactionId":"original","updatedAtEpochMillis":1,"integrity":"Verified","checksumSha256":"4f53cda18c2baa0c0354bb5f9a3ecbe5ed7c6d8fd65f4d4d7f6d1d2a2f1b0f8a"}
             """.trimIndent(),
         )
         val originalBytes = existingPdf.readBytes()
@@ -180,6 +181,52 @@ class PdfWriteEnginePersistenceTest {
         PDDocument.load(existingPdf).use { restored ->
             assertThat(restored.numberOfPages).isEqualTo(1)
         }
+    }
+
+    @Test
+    fun load_readsOlderSessionPayload_evenWhenLegacyFlagIsPresent() = runBlocking {
+        val pdfFile = createPdf("legacy-session-${System.nanoTime()}.pdf", listOf(PDRectangle.LETTER))
+        val engine = PdfBoxWriteEngine(context)
+        val ref = PdfDocumentRef(
+            uriString = pdfFile.toURI().toString(),
+            displayName = pdfFile.name,
+            sourceType = DocumentSourceType.File,
+            sourceKey = pdfFile.absolutePath,
+            workingCopyPath = pdfFile.absolutePath,
+        )
+        val document = DocumentModel(
+            sessionId = "legacy-session",
+            documentRef = ref,
+            pages = listOf(
+                PageModel(
+                    index = 0,
+                    label = "1",
+                    rotationDegrees = 0,
+                    contentType = PageContentType.Pdf,
+                    sourceDocumentPath = pdfFile.absolutePath,
+                    sourcePageIndex = 0,
+                    widthPoints = PDRectangle.LETTER.width,
+                    heightPoints = PDRectangle.LETTER.height,
+                    editObjects = listOf(
+                        TextBoxEditModel("text-1", 0, NormalizedRect(0.1f, 0.1f, 0.4f, 0.2f), text = "Older session"),
+                    ),
+                ),
+            ),
+        )
+        engine.persist(document, pdfFile, AnnotationExportMode.Editable, SaveStrategy.FullRewrite)
+        val sessionFile = File(pdfFile.absolutePath + ".mutations.json")
+        sessionFile.writeText(
+            sessionFile.readText().replace(
+                "\"integrity\":\"Verified\"",
+                "\"integrity\":\"LegacyMigrated\",\"legacyCompatibilityMigrated\":true",
+            ),
+        )
+
+        val loaded = engine.load(ref)
+
+        assertThat(loaded.editObjectsByPage[0]).hasSize(1)
+        assertThat((loaded.editObjectsByPage[0]!!.single() as TextBoxEditModel).text).isEqualTo("Older session")
+        assertThat(loaded.integrityStatus).isEqualTo(MutationIntegrityStatus.LegacyMigrated)
     }
 
     private fun createPdf(name: String, pageSizes: List<PDRectangle>): File {

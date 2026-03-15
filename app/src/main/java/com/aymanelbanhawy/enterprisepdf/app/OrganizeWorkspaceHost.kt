@@ -26,6 +26,8 @@ fun OrganizeWorkspaceHost(
         onBack = viewModel::showEditor,
         onSelectPage = viewModel::selectPage,
         onMovePage = viewModel::movePage,
+        onMoveSelectionBackward = viewModel::moveSelectionBackward,
+        onMoveSelectionForward = viewModel::moveSelectionForward,
         onRotateSelected = viewModel::rotateSelectedPages,
         onDeleteSelected = viewModel::deleteSelectedPages,
         onDuplicateSelected = viewModel::duplicateSelectedPages,

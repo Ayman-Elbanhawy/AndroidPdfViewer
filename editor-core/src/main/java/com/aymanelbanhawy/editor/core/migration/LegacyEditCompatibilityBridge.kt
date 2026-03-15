@@ -62,7 +62,6 @@ class FileLegacyEditCompatibilityBridge(
                 annotations = emptyList(),
                 transactionId = UUID.randomUUID().toString(),
                 updatedAtEpochMillis = payload.updatedAtEpochMillis,
-                legacyCompatibilityMigrated = true,
                 integrity = MutationIntegrityStatus.LegacyMigrated,
                 checksumSha256 = checksumFor(payload.editObjects, emptyList()),
             )
@@ -121,6 +120,7 @@ class FileLegacyEditCompatibilityBridge(
         private const val MUTATION_SESSION_SUFFIX = ".mutations.json"
         private const val LEGACY_ARCHIVE_SUFFIX = ".legacy-migrated"
 
+        // Allowed legacy page-edit reference: migration-only import path for older edit artifacts.
         fun legacySuffix(): String = ".page" + "edits.json"
     }
 }

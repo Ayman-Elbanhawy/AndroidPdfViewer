@@ -22,6 +22,8 @@ import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.ModelTraining
 import androidx.compose.material.icons.outlined.NetworkCheck
+import androidx.compose.material.icons.outlined.PauseCircleOutline
+import androidx.compose.material.icons.outlined.PlayCircleOutline
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Search
@@ -87,6 +89,8 @@ fun AssistantSidebar(
     onCancelVoicePromptCapture: () -> Unit,
     onReadCurrentPageAloud: () -> Unit,
     onReadSelectionAloud: () -> Unit,
+    onPauseReadAloud: () -> Unit,
+    onResumeReadAloud: () -> Unit,
     onStopReadAloud: () -> Unit,
     onAssistantAudioEnabledChanged: (Boolean) -> Unit,
 ) {
@@ -191,7 +195,9 @@ fun AssistantSidebar(
                     AssistantActionButton(icon = Icons.Outlined.StopCircle, tooltip = "Cancel Voice Capture", enabled = state.audio.voiceCapture.status != com.aymanelbanhawy.aiassistant.core.VoiceCaptureStatus.Idle, onClick = onCancelVoicePromptCapture)
                     AssistantActionButton(icon = Icons.Outlined.Description, tooltip = "Read Current Page", enabled = state.audio.enabled, onClick = onReadCurrentPageAloud)
                     AssistantActionButton(icon = Icons.AutoMirrored.Outlined.Subject, tooltip = "Read Selection", enabled = state.audio.enabled, onClick = onReadSelectionAloud)
-                    AssistantActionButton(icon = Icons.Outlined.StopCircle, tooltip = "Stop Read Aloud", enabled = state.audio.readAloud.status == com.aymanelbanhawy.aiassistant.core.ReadAloudStatus.Preparing || state.audio.readAloud.status == com.aymanelbanhawy.aiassistant.core.ReadAloudStatus.Speaking, onClick = onStopReadAloud)
+                    AssistantActionButton(icon = Icons.Outlined.PauseCircleOutline, tooltip = "Pause Read Aloud", enabled = state.audio.readAloud.status == com.aymanelbanhawy.aiassistant.core.ReadAloudStatus.Speaking || state.audio.readAloud.status == com.aymanelbanhawy.aiassistant.core.ReadAloudStatus.Preparing, onClick = onPauseReadAloud)
+                    AssistantActionButton(icon = Icons.Outlined.PlayCircleOutline, tooltip = "Resume Read Aloud", enabled = state.audio.readAloud.status == com.aymanelbanhawy.aiassistant.core.ReadAloudStatus.Paused, onClick = onResumeReadAloud)
+                    AssistantActionButton(icon = Icons.Outlined.StopCircle, tooltip = "Stop Read Aloud", enabled = state.audio.readAloud.status == com.aymanelbanhawy.aiassistant.core.ReadAloudStatus.Preparing || state.audio.readAloud.status == com.aymanelbanhawy.aiassistant.core.ReadAloudStatus.Speaking || state.audio.readAloud.status == com.aymanelbanhawy.aiassistant.core.ReadAloudStatus.Paused, onClick = onStopReadAloud)
                 }
             }
             if (state.audio.reason != null || state.audio.voiceCapture.diagnosticsMessage.isNotBlank() || state.audio.readAloud.diagnosticsMessage.isNotBlank()) {
@@ -328,7 +334,17 @@ private fun SemanticCard(card: SemanticSearchCard, onOpen: () -> Unit) {
 
 @Composable
 private fun AssistantActionButton(icon: androidx.compose.ui.graphics.vector.ImageVector, tooltip: String, enabled: Boolean = true, onClick: () -> Unit) {
-    IconButton(onClick = onClick, enabled = enabled) { Icon(icon, contentDescription = tooltip) }
+    Surface(
+        shape = MaterialTheme.shapes.small,
+        color = if (enabled) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.94f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        contentColor = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.52f),
+        tonalElevation = 2.dp,
+        shadowElevation = 2.dp,
+    ) {
+        IconButton(onClick = onClick, enabled = enabled) {
+            Icon(icon, contentDescription = tooltip)
+        }
+    }
 }
 
 private fun endpointHelp(kind: AiProviderKind): String = when (kind) {

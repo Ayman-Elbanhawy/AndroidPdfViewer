@@ -2,6 +2,8 @@ package com.aymanelbanhawy.editor.core.workflow
 
 import android.content.Context
 import android.content.ContextWrapper
+import com.aymanelbanhawy.editor.core.collaboration.ActivityEventModel
+import com.aymanelbanhawy.editor.core.collaboration.ActivityEventType
 import com.aymanelbanhawy.editor.core.data.ActivityEventDao
 import com.aymanelbanhawy.editor.core.data.ActivityEventEntity
 import com.aymanelbanhawy.editor.core.data.CompareReportDao
@@ -46,6 +48,10 @@ import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
 import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
 import java.io.File
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import org.junit.Test
@@ -211,17 +217,120 @@ class DefaultWorkflowRepositoryTest {
         assertThat(failure).isInstanceOf(SecurityException::class.java)
     }
 
+    @Test
+    fun exportFlows_areBlockedAndAudited_whenPolicyRestrictsExport() = runBlocking {
+        val activityDao = RecordingActivityEventDao()
+        val repository = repository(
+            state = EnterpriseAdminStateModel(
+                authSession = AuthSessionModel(mode = AuthenticationMode.Enterprise, isSignedIn = true, email = "owner@tenant.com", displayName = "Owner"),
+                tenantConfiguration = TenantConfigurationModel(domain = "tenant.com"),
+                adminPolicy = AdminPolicyModel(restrictExport = true),
+                plan = LicensePlan.Enterprise,
+            ),
+            activityEventDao = activityDao,
+        )
+        val pdf = createPdf("restricted-${System.nanoTime()}.pdf", "restricted export content")
+        val document = document(pdf)
+
+        val failure = runCatching {
+            repository.exportDocumentAsWord(document, File(context.cacheDir, "restricted.docx"))
+        }.exceptionOrNull()
+
+        assertThat(failure).isInstanceOf(SecurityException::class.java)
+        assertThat(activityDao.allItems()).hasSize(1)
+        assertThat(activityDao.allItems().single().summary).contains("Blocked word export")
+        assertThat(activityDao.allItems().single().metadataJson).contains("restrictExport")
+    }
+
+    @Test
+    fun workflowEvidenceBundle_generatesVerifiedOutputs() = runBlocking {
+        val activityDao = RecordingActivityEventDao()
+        val repository = repository(activityEventDao = activityDao)
+        val evidenceRoot = resolveWorkflowEvidenceRoot().apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val sourceDir = File(evidenceRoot, "sources").apply { mkdirs() }
+        val outputDir = File(evidenceRoot, "outputs").apply { mkdirs() }
+        val logDir = File(evidenceRoot, "logs").apply { mkdirs() }
+
+        val baselinePdf = createPdf("evidence-baseline-${System.nanoTime()}.pdf", "alpha beta gamma")
+        val comparedPdf = createPdf("evidence-compared-${System.nanoTime()}.pdf", "alpha beta gamma delta")
+        baselinePdf.copyTo(File(sourceDir, "baseline.pdf"), overwrite = true)
+        comparedPdf.copyTo(File(sourceDir, "compared.pdf"), overwrite = true)
+        val importDocx = createDocx("evidence-import-${System.nanoTime()}.docx", listOf("Imported heading", "Imported body paragraph"))
+        importDocx.copyTo(File(sourceDir, "import-source.docx"), overwrite = true)
+        val imageSource = createImageFile("evidence-image-${System.nanoTime()}.png")
+        imageSource.copyTo(File(sourceDir, "import-source.png"), overwrite = true)
+
+        val document = document(baselinePdf)
+        val textExport = repository.exportDocumentAsText(document, File(outputDir, "document.txt"))
+        val markdownExport = repository.exportDocumentAsMarkdown(document, File(outputDir, "document.md"))
+        val wordExport = repository.exportDocumentAsWord(document, File(outputDir, "document.docx"))
+        val imageExport = repository.exportDocumentAsImages(document, File(outputDir, "images"), ExportImageFormat.Png)
+        val importedFromDocx = repository.importSourceAsPdf(importDocx, "imported-from-docx.pdf")
+        val importedFromImage = repository.importSourceAsPdf(imageSource, "imported-from-image.pdf")
+        val merged = repository.mergeSourcesAsPdf(listOf(baselinePdf, importDocx), "merged.pdf")
+        val optimized = repository.optimizeDocument(document, File(outputDir, "optimized.pdf"), PdfOptimizationPreset.Balanced)
+        val compareReport = repository.compareDocuments(document, ref(comparedPdf))
+        val compareReportMarkdown = repository.exportCompareReport(compareReport.id, File(outputDir, "compare-report.md"))
+        val compareReportJson = repository.exportCompareReport(compareReport.id, File(outputDir, "compare-report.json"), CompareReportExportFormat.Json)
+
+        assertThat(textExport.artifacts).isNotEmpty()
+        assertThat(markdownExport.artifacts).isNotEmpty()
+        assertThat(wordExport.artifacts).isNotEmpty()
+        assertThat(imageExport.artifacts).isNotEmpty()
+
+        val importedDocxPath = (importedFromDocx.request as OpenDocumentRequest.FromFile).absolutePath
+        val importedImagePath = (importedFromImage.request as OpenDocumentRequest.FromFile).absolutePath
+        val mergedPath = (merged.request as OpenDocumentRequest.FromFile).absolutePath
+        File(importedDocxPath).copyTo(File(outputDir, "imported-from-docx.pdf"), overwrite = true)
+        File(importedImagePath).copyTo(File(outputDir, "imported-from-image.pdf"), overwrite = true)
+        File(mergedPath).copyTo(File(outputDir, "merged.pdf"), overwrite = true)
+
+        val manifest = WorkflowEvidenceManifest(
+            generatedAtEpochMillis = System.currentTimeMillis(),
+            outputs = listOf(
+                evidenceEntry("text-export", File(textExport.artifacts.first().path)),
+                evidenceEntry("markdown-export", File(markdownExport.artifacts.first().path)),
+                evidenceEntry("word-export", File(wordExport.artifacts.first().path)),
+                evidenceEntry("image-export", File(imageExport.artifacts.first().path)),
+                evidenceEntry("docx-import", File(outputDir, "imported-from-docx.pdf")),
+                evidenceEntry("image-import", File(outputDir, "imported-from-image.pdf")),
+                evidenceEntry("merge", File(outputDir, "merged.pdf")),
+                evidenceEntry("optimize", optimized.destination),
+                evidenceEntry("compare-report-markdown", File(compareReportMarkdown.path)),
+                evidenceEntry("compare-report-json", File(compareReportJson.path)),
+            ),
+            compareSummary = compareReport.summary,
+            exportLogPath = File(logDir, "activity-events.json").absolutePath,
+        )
+        File(logDir, "activity-events.json").writeText(json.encodeToString(activityDao.snapshot(json)))
+        File(evidenceRoot, "workflow-manifest.json").writeText(json.encodeToString(WorkflowEvidenceManifest.serializer(), manifest))
+
+        assertThat(File(evidenceRoot, "workflow-manifest.json").exists()).isTrue()
+        assertThat(File(outputDir, "document.docx").exists()).isTrue()
+        assertThat(File(outputDir, "imported-from-docx.pdf").exists()).isTrue()
+        assertThat(File(outputDir, "merged.pdf").exists()).isTrue()
+        assertThat(File(outputDir, "optimized.pdf").exists()).isTrue()
+        assertThat(File(outputDir, "compare-report.json").readText()).contains("\"pageChanges\"")
+        PDDocument.load(File(outputDir, "merged.pdf")).use { mergedDocument ->
+            assertThat(mergedDocument.numberOfPages).isAtLeast(2)
+        }
+    }
+
     private fun repository(
         state: EnterpriseAdminStateModel = EnterpriseAdminStateModel(),
         documentRepository: DocumentRepository = RecordingDocumentRepository(),
         scanImportService: ScanImportService = RecordingScanImportService(),
+        activityEventDao: ActivityEventDao = RecordingActivityEventDao(),
     ): WorkflowRepository {
         return DefaultWorkflowRepository(
             context = context,
             compareReportDao = RecordingCompareReportDao(),
             formTemplateDao = RecordingFormTemplateDao(),
             workflowRequestDao = RecordingWorkflowRequestDao(),
-            activityEventDao = RecordingActivityEventDao(),
+            activityEventDao = activityEventDao,
             enterpriseAdminRepository = RecordingEnterpriseAdminRepository(state),
             extractionService = PdfBoxTextExtractionService(),
             ocrSessionStore = OcrSessionStore(json, null),
@@ -289,6 +398,16 @@ class DefaultWorkflowRepositoryTest {
         return file
     }
 
+    private fun createImageFile(name: String): File {
+        val file = File(context.filesDir, name)
+        android.graphics.Bitmap.createBitmap(32, 32, android.graphics.Bitmap.Config.ARGB_8888).apply {
+            eraseColor(android.graphics.Color.rgb(0x12, 0x5B, 0xD8))
+            compress(android.graphics.Bitmap.CompressFormat.PNG, 100, file.outputStream())
+            recycle()
+        }
+        return file
+    }
+
     private fun createPdf(name: String, text: String): File {
         val file = File(context.filesDir, name)
         PDDocument().use { document ->
@@ -304,6 +423,21 @@ class DefaultWorkflowRepositoryTest {
             document.save(file)
         }
         return file
+    }
+
+    private fun evidenceEntry(flow: String, file: File): WorkflowEvidenceEntry {
+        return WorkflowEvidenceEntry(
+            flow = flow,
+            path = file.absolutePath,
+            exists = file.exists(),
+            sizeBytes = file.length(),
+        )
+    }
+
+    private fun resolveWorkflowEvidenceRoot(): File {
+        val workingDirectory = File(System.getProperty("user.dir") ?: ".")
+        val moduleDir = if (workingDirectory.name == "editor-core") workingDirectory else File(workingDirectory, "editor-core")
+        return File(moduleDir, "build/reports/workflow-evidence")
     }
 }
 
@@ -334,6 +468,22 @@ private class RecordingActivityEventDao : ActivityEventDao {
     override suspend fun upsertAll(entities: List<ActivityEventEntity>) { entities.forEach { upsert(it) } }
     override suspend fun forDocument(documentKey: String): List<ActivityEventEntity> = items.values.filter { it.documentKey == documentKey }.sortedByDescending { it.createdAtEpochMillis }
     override suspend fun deleteForDocument(documentKey: String) { items.entries.removeIf { it.value.documentKey == documentKey } }
+    fun allItems(): List<ActivityEventEntity> = items.values.toList()
+    fun snapshot(json: Json): List<ActivityEventModel> = items.values.map { entity ->
+        ActivityEventModel(
+            id = entity.id,
+            documentKey = entity.documentKey,
+            type = ActivityEventType.valueOf(entity.type),
+            actor = entity.actor,
+            summary = entity.summary,
+            createdAtEpochMillis = entity.createdAtEpochMillis,
+            threadId = entity.threadId,
+            metadata = json.decodeFromString(MapSerializer(String.serializer(), String.serializer()), entity.metadataJson),
+            remoteVersion = entity.remoteVersion,
+            serverUpdatedAtEpochMillis = entity.serverUpdatedAtEpochMillis,
+            lastSyncedAtEpochMillis = entity.lastSyncedAtEpochMillis,
+        )
+    }
 }
 
 private class RecordingEnterpriseAdminRepository(
@@ -379,6 +529,22 @@ private class RecordingScanImportService : ScanImportService {
         return OpenDocumentRequest.FromFile(destination.absolutePath, displayNameOverride = destination.name)
     }
 }
+
+@Serializable
+private data class WorkflowEvidenceEntry(
+    val flow: String,
+    val path: String,
+    val exists: Boolean,
+    val sizeBytes: Long,
+)
+
+@Serializable
+private data class WorkflowEvidenceManifest(
+    val generatedAtEpochMillis: Long,
+    val outputs: List<WorkflowEvidenceEntry>,
+    val compareSummary: CompareSummaryModel,
+    val exportLogPath: String,
+)
 
 
 

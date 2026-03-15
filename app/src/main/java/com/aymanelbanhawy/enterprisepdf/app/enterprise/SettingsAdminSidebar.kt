@@ -29,6 +29,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
@@ -80,13 +81,21 @@ fun SettingsAdminSidebar(
     var issuerBaseUrl by remember(state.tenantConfiguration.issuerBaseUrl) { mutableStateOf(state.tenantConfiguration.issuerBaseUrl) }
     var remoteBootstrap by remember(state.tenantConfiguration.bootstrapMode) { mutableStateOf(state.tenantConfiguration.bootstrapMode == EnterpriseBootstrapMode.Remote) }
 
-    Surface(modifier = modifier.semantics { paneTitle = "Settings and admin panel" }, tonalElevation = 2.dp) {
+    Surface(
+        modifier = modifier
+            .semantics { paneTitle = "Settings and admin panel" }
+            .testTag("settings-admin-sidebar"),
+        tonalElevation = 5.dp,
+        shadowElevation = 12.dp,
+        shape = MaterialTheme.shapes.extraLarge,
+        color = MaterialTheme.colorScheme.surface,
+    ) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.fillMaxSize().padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             item {
-                Card {
+                Card(shape = MaterialTheme.shapes.large) {
                     Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("Authentication", style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
                         Text("Mode: ${state.authSession.mode.name} | ${state.authSession.status.name}")
@@ -124,7 +133,7 @@ fun SettingsAdminSidebar(
                 }
             }
             item {
-                Card {
+                Card(shape = MaterialTheme.shapes.large) {
                     Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("Tenant + License", style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
                         Text("Tenant: ${state.tenantConfiguration.tenantName}")
@@ -141,7 +150,7 @@ fun SettingsAdminSidebar(
                 }
             }
             item {
-                Card {
+                Card(shape = MaterialTheme.shapes.large) {
                     Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Entitlements", style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
                         FeatureFlag.entries.forEach { flag ->
@@ -162,13 +171,17 @@ fun SettingsAdminSidebar(
                 )
             }
             item {
-                Card {
+                Card(shape = MaterialTheme.shapes.large) {
                     Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Admin Policy", style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
                         ToggleRow("Restrict export", state.adminPolicy.restrictExport) { onUpdatePolicy(state.adminPolicy.copy(restrictExport = it)) }
                         ToggleRow("Restrict print", state.adminPolicy.restrictPrint) { onUpdatePolicy(state.adminPolicy.copy(restrictPrint = it)) }
                         ToggleRow("Restrict copy", state.adminPolicy.restrictCopy) { onUpdatePolicy(state.adminPolicy.copy(restrictCopy = it)) }
                         ToggleRow("AI enabled", state.adminPolicy.aiEnabled) { onUpdatePolicy(state.adminPolicy.copy(aiEnabled = it)) }
+                        ToggleRow("Audio features enabled", state.adminPolicy.audioFeaturesEnabled) { onUpdatePolicy(state.adminPolicy.copy(audioFeaturesEnabled = it)) }
+                        ToggleRow("Voice input enabled", state.adminPolicy.voiceInputEnabled) { onUpdatePolicy(state.adminPolicy.copy(voiceInputEnabled = it)) }
+                        ToggleRow("Speech output enabled", state.adminPolicy.speechOutputEnabled) { onUpdatePolicy(state.adminPolicy.copy(speechOutputEnabled = it)) }
+                        ToggleRow("Voice comments enabled", state.adminPolicy.voiceCommentsEnabled) { onUpdatePolicy(state.adminPolicy.copy(voiceCommentsEnabled = it)) }
                         ToggleRow("Allow cloud AI", state.adminPolicy.allowCloudAiProviders) { onUpdatePolicy(state.adminPolicy.copy(allowCloudAiProviders = it)) }
                         ToggleRow("Allow external sharing", state.adminPolicy.allowExternalSharing) { onUpdatePolicy(state.adminPolicy.copy(allowExternalSharing = it)) }
                         OutlinedTextField(
@@ -181,7 +194,7 @@ fun SettingsAdminSidebar(
                 }
             }
             item {
-                Card {
+                Card(shape = MaterialTheme.shapes.large) {
                     Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Privacy + Telemetry", style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
                         ToggleRow("Telemetry enabled", state.privacySettings.telemetryEnabled) { onUpdatePrivacy(state.privacySettings.copy(telemetryEnabled = it)) }
@@ -198,7 +211,7 @@ fun SettingsAdminSidebar(
                 }
             }
             items(telemetryEvents.take(20), key = { it.id }) { event ->
-                Card {
+                Card(shape = MaterialTheme.shapes.large) {
                     Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(event.name, style = MaterialTheme.typography.labelLarge)
                         Text("${event.category.name} | ${event.uploadState.name}", style = MaterialTheme.typography.bodySmall)
