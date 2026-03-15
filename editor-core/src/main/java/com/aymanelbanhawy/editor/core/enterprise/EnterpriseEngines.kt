@@ -41,6 +41,12 @@ object PolicyEngine {
     fun watermarkFor(state: EnterpriseAdminStateModel): String? = state.adminPolicy.forcedWatermarkText.takeIf { it.isNotBlank() }
 
     fun aiCloudAllowed(state: EnterpriseAdminStateModel): Boolean {
-        return state.adminPolicy.aiEnabled && state.adminPolicy.allowCloudAiProviders && !state.privacySettings.localOnlyMode
+        val entitlements = EntitlementEngine.resolve(
+            plan = state.plan,
+            policy = state.adminPolicy,
+            remoteFeatureOverrides = state.remoteFeatureOverrides,
+        )
+        val aiAccess = AiFeatureAccessResolver.resolve(entitlements, state.adminPolicy)
+        return aiAccess.available && state.adminPolicy.allowCloudAiProviders && !state.privacySettings.localOnlyMode
     }
 }

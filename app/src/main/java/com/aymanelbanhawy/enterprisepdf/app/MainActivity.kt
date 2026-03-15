@@ -1,7 +1,9 @@
 package com.aymanelbanhawy.enterprisepdf.app
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -20,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.aymanelbanhawy.editor.core.session.EditorSessionEvent
 import com.aymanelbanhawy.enterprisepdf.app.editor.EditorViewModel
+import com.aymanelbanhawy.enterprisepdf.app.open.PdfOpenIntentResolver
 import com.aymanelbanhawy.enterprisepdf.app.theme.EnterprisePdfTheme
 import java.io.File
 
@@ -32,6 +35,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleIncomingIntent(intent, initialize = true)
         setContent {
             EnterprisePdfTheme {
                 EnterprisePdfAppFrame {
@@ -42,6 +46,22 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncomingIntent(intent)
+    }
+
+    fun handleIncomingIntent(intent: Intent?, initialize: Boolean = false) {
+        takeReadPermissionIfAvailable(intent)
+        val resolved = PdfOpenIntentResolver.resolve(this, intent)
+        if (initialize) {
+            viewModel.initializeDocument(resolved)
+        } else if (resolved != null) {
+            viewModel.openIncomingDocument(resolved)
         }
     }
 
@@ -66,6 +86,36 @@ class MainActivity : ComponentActivity() {
             putExtra(Intent.EXTRA_TEXT, event.text)
         }
         startActivity(Intent.createChooser(sendIntent, event.title))
+    }
+
+    private fun takeReadPermissionIfAvailable(intent: Intent?) {
+        val incomingIntent = intent ?: return
+        val targetUri = when (incomingIntent.action) {
+            Intent.ACTION_VIEW -> incomingIntent.data
+            Intent.ACTION_SEND -> incomingIntent.extraStreamUri()
+            else -> null
+        } ?: return
+        val readFlags = incomingIntent.flags and
+            (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+        if ((readFlags and Intent.FLAG_GRANT_READ_URI_PERMISSION) == 0) return
+        runCatching {
+            grantUriPermission(packageName, targetUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            if ((readFlags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) != 0) {
+                contentResolver.takePersistableUriPermission(
+                    targetUri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            }
+        }
+    }
+}
+
+private fun Intent.extraStreamUri(): Uri? {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+    } else {
+        @Suppress("DEPRECATION")
+        getParcelableExtra(Intent.EXTRA_STREAM) as? Uri
     }
 }
 

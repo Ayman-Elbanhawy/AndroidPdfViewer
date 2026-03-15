@@ -34,6 +34,7 @@ import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.IosShare
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Rotate90DegreesCw
+import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AssistChip
@@ -41,6 +42,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -143,6 +145,9 @@ fun EditorScreen(
     onSaveFormProfile: (String) -> Unit,
     onApplyFormProfile: (String) -> Unit,
     onExportFormData: () -> Unit,
+    onOpenPdf: () -> Unit,
+    onOpenFromFiles: () -> Unit,
+    onOpenRecentDocument: (RecentDocumentUiState) -> Unit,
     onImportProfile: () -> Unit,
     onOpenSignatureCapture: (String) -> Unit,
     onApplySavedSignature: (String, String) -> Unit,
@@ -348,17 +353,36 @@ fun EditorScreen(
                 actions = {
                     IconTooltipButton(icon = Icons.AutoMirrored.Outlined.Undo, tooltip = "Undo", enabled = session.undoRedoState.canUndo, onClick = onUndo)
                     IconTooltipButton(icon = Icons.AutoMirrored.Outlined.Redo, tooltip = "Redo", enabled = session.undoRedoState.canRedo, onClick = onRedo)
-                    IconTooltipButton(icon = Icons.Outlined.FileOpen, tooltip = "Save Editable", onClick = onSaveEditable)
+                    IconTooltipButton(icon = Icons.Outlined.FileOpen, tooltip = "Open PDF", onClick = onOpenPdf)
+                    IconTooltipButton(icon = Icons.Outlined.Save, tooltip = "Save Editable", onClick = onSaveEditable)
                     IconTooltipButton(icon = Icons.Outlined.IosShare, tooltip = "Share", onClick = { onActionSelected(EditorAction.Share) })
                     IconTooltipButton(icon = Icons.Outlined.MoreVert, tooltip = "More", onClick = { overflowExpanded = true })
                     DropdownMenu(expanded = overflowExpanded, onDismissRequest = { overflowExpanded = false }) {
+                        DropdownMenuItem(text = { Text("Open PDF") }, onClick = { overflowExpanded = false; onOpenPdf() })
+                        DropdownMenuItem(text = { Text("Open from Files") }, onClick = { overflowExpanded = false; onOpenFromFiles() })
+                        DropdownMenuItem(text = { Text("Open Recent") }, enabled = false, onClick = {})
+                        if (state.recentDocuments.isNotEmpty()) {
+                            state.recentDocuments.take(5).forEach { recentDocument ->
+                                DropdownMenuItem(
+                                    text = { Text(recentDocument.displayName) },
+                                    onClick = {
+                                        overflowExpanded = false
+                                        onOpenRecentDocument(recentDocument)
+                                    },
+                                )
+                            }
+                        } else {
+                            DropdownMenuItem(text = { Text("No recent PDFs yet") }, enabled = false, onClick = {})
+                        }
+                        HorizontalDivider()
                         DropdownMenuItem(text = { Text("Save Flattened") }, onClick = { overflowExpanded = false; onSaveFlattened() })
                         DropdownMenuItem(text = { Text("Save Editable To Connector") }, onClick = { overflowExpanded = false; onSaveToConnectorEditable() })
                         DropdownMenuItem(text = { Text("Save Flattened To Connector") }, onClick = { overflowExpanded = false; onSaveToConnectorFlattened() })
                         DropdownMenuItem(text = { Text("Share To Connector") }, onClick = { overflowExpanded = false; onShareToConnectorEditable() })
                         DropdownMenuItem(text = { Text("Save Editable Copy") }, onClick = { overflowExpanded = false; onSaveAsEditable() })
                         DropdownMenuItem(text = { Text("Save Flattened Copy") }, onClick = { overflowExpanded = false; onSaveAsFlattened() })
-                        DropdownMenuItem(text = { Text("Import Form Profile") }, onClick = { overflowExpanded = false; onImportProfile() })
+                        HorizontalDivider()
+                        DropdownMenuItem(text = { Text("Import Form Profile (JSON)") }, onClick = { overflowExpanded = false; onImportProfile() })
                         DropdownMenuItem(text = { Text("Images To Searchable PDF") }, onClick = { overflowExpanded = false; onShowScanImport() })
                         DropdownMenuItem(text = { Text("Export Text") }, onClick = { overflowExpanded = false; workflowExportActions.onExportText() })
                         DropdownMenuItem(text = { Text("Export Markdown") }, onClick = { overflowExpanded = false; workflowExportActions.onExportMarkdown() })

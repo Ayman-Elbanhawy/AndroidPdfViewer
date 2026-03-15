@@ -18,6 +18,7 @@ class EditorScreenTest {
         composeRule.onNodeWithContentDescription("Annotate").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Sign").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Search").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Open PDF").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Share").assertIsDisplayed()
     }
 }

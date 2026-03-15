@@ -130,7 +130,10 @@ import com.aymanelbanhawy.editor.core.runtime.RuntimeLogLevel
 import com.aymanelbanhawy.editor.core.runtime.RuntimeEventCategory
 import com.aymanelbanhawy.editor.core.runtime.RuntimeDiagnosticsSnapshot
 import com.aymanelbanhawy.enterprisepdf.app.AppContainer
+import com.aymanelbanhawy.enterprisepdf.app.RecentDocumentSummary
 import com.aymanelbanhawy.enterprisepdf.app.audio.resolveAudioFeatureCapabilities
+import com.aymanelbanhawy.enterprisepdf.app.open.PendingPdfOpenRequest
+import com.aymanelbanhawy.enterprisepdf.app.open.PdfOpenSource
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -167,6 +170,13 @@ data class ConnectorExportUiState(
     val selectedAccountId: String = "",
     val remotePath: String = "",
     val displayName: String = "document.pdf",
+)
+
+data class RecentDocumentUiState(
+    val sourceKey: String,
+    val displayName: String,
+    val sourceType: String,
+    val workingCopyPath: String,
 )
 
 data class EditorUiState(
@@ -214,6 +224,8 @@ data class EditorUiState(
     val pendingThreadVoiceComment: VoiceCommentAttachmentModel? = null,
     val pendingReplyVoiceComments: Map<String, VoiceCommentAttachmentModel> = emptyMap(),
     val activeVoiceCommentPlaybackId: String? = null,
+    val recentDocuments: List<RecentDocumentUiState> = emptyList(),
+    val lastDocumentOpenDiagnostic: String? = null,
 ) {
     val selectedAnnotation: AnnotationModel?
         get() = session.document?.pages?.flatMap { it.annotations }?.firstOrNull { it.id in session.selection.selectedAnnotationIds }
@@ -286,6 +298,8 @@ class EditorViewModel(
     private val pendingThreadVoiceComment = MutableStateFlow<VoiceCommentAttachmentModel?>(null)
     private val pendingReplyVoiceComments = MutableStateFlow<Map<String, VoiceCommentAttachmentModel>>(emptyMap())
     private val activeVoiceCommentPlaybackId = MutableStateFlow<String?>(null)
+    private val recentDocuments = MutableStateFlow(emptyList<RecentDocumentUiState>())
+    private val lastDocumentOpenDiagnostic = MutableStateFlow<String?>(null)
     private val localEvents = MutableSharedFlow<EditorSessionEvent>(extraBufferCapacity = 16)
     private val indexingPolicy = IndexingPolicy()
     private var ocrObservationJob: Job? = null
@@ -294,6 +308,7 @@ class EditorViewModel(
     private var activeReadAloudSession: ActiveReadAloudSession? = null
     private var lastSpokenAssistantResultEpochMillis: Long? = null
     private var suppressReadAloudStopUpdate = false
+    private var documentInitialized = false
 
     val uiState: StateFlow<EditorUiState> = combine(
         session.state,
@@ -339,6 +354,8 @@ class EditorViewModel(
         pendingThreadVoiceComment,
         pendingReplyVoiceComments,
         activeVoiceCommentPlaybackId,
+        recentDocuments,
+        lastDocumentOpenDiagnostic,
     ) { values ->
         EditorUiState(
             session = values[0] as EditorSessionState,
@@ -383,6 +400,8 @@ class EditorViewModel(
             pendingThreadVoiceComment = values[40] as VoiceCommentAttachmentModel?,
             pendingReplyVoiceComments = values[41] as Map<String, VoiceCommentAttachmentModel>,
             activeVoiceCommentPlaybackId = values[42] as String?,
+            recentDocuments = values[43] as List<RecentDocumentUiState>,
+            lastDocumentOpenDiagnostic = values[44] as String?,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EditorUiState())
 
@@ -391,25 +410,96 @@ class EditorViewModel(
     init {
         observeDocumentOcrState()
         viewModelScope.launch {
-            runCatching { refreshEnterpriseData() }
             ocrSettings.value = appContainer.ocrJobPipeline.loadSettings()
             scanImportOptions.value = scanImportOptions.value.copy(ocrSettings = ocrSettings.value)
-            session.openDocument(appContainer.seedDocumentRequest())
-            runCatching { refreshThumbnails() }
-            runCatching { refreshFormSupportData() }
-            runCatching { refreshSearchSupportData(forceSync = true) }
-            runCatching { refreshCollaborationData() }
-            runCatching { refreshWorkflowData() }
-            runCatching { refreshSecurityData() }
-            runCatching { refreshDiagnosticsData() }
-            runCatching { recordActivity(ActivityEventType.Opened, "Opened ${session.state.value.document?.documentRef?.displayName.orEmpty()}") }
-            runCatching { recordSecurityAudit(AuditEventType.DocumentOpened, "Opened document") }
-            runCatching { queueTelemetry("document_opened", mapOf("mode" to enterpriseState.value.authSession.mode.name)) }
+            runCatching { refreshEnterpriseData() }
+        }
+        viewModelScope.launch {
+            appContainer.observeRecentDocuments().collectLatest { documents ->
+                recentDocuments.value = documents.map { it.toUiState() }
+            }
         }
     }
 
     fun onDocumentLoaded(pageCount: Int) = session.onDocumentLoaded(pageCount)
     fun onPageChanged(page: Int, pageCount: Int) = session.onPageChanged(page, pageCount)
+
+    fun initializeDocument(initialOpenRequest: PendingPdfOpenRequest?) {
+        if (documentInitialized) return
+        documentInitialized = true
+        viewModelScope.launch {
+            val resolved = initialOpenRequest ?: PendingPdfOpenRequest(
+                request = appContainer.seedDocumentRequest(),
+                source = PdfOpenSource.SampleSeed,
+                activeUri = "asset://sample.pdf",
+                displayName = "sample.pdf",
+            )
+            openDocumentRequest(
+                pendingRequest = resolved,
+                userMessage = when (resolved.source) {
+                    PdfOpenSource.SampleSeed -> null
+                    PdfOpenSource.SafPicker -> "Opened ${resolved.displayName} from Files"
+                    PdfOpenSource.ExternalViewIntent -> "Opened ${resolved.displayName} from external PDF view intent"
+                    PdfOpenSource.ExternalSendIntent -> "Opened ${resolved.displayName} from external PDF share intent"
+                    PdfOpenSource.RecentDocument -> "Opened recent PDF ${resolved.displayName}"
+                    PdfOpenSource.Connector -> "Opened ${resolved.displayName} from connector"
+                },
+                fallbackToSampleOnFailure = resolved.source != PdfOpenSource.SampleSeed,
+            )
+        }
+    }
+
+    fun openIncomingDocument(pendingRequest: PendingPdfOpenRequest) {
+        viewModelScope.launch {
+            openDocumentRequest(
+                pendingRequest = pendingRequest,
+                userMessage = when (pendingRequest.source) {
+                    PdfOpenSource.SafPicker -> "Opened ${pendingRequest.displayName} from Files"
+                    PdfOpenSource.ExternalViewIntent -> "Opened ${pendingRequest.displayName} from external PDF view intent"
+                    PdfOpenSource.ExternalSendIntent -> "Opened ${pendingRequest.displayName} from external PDF share intent"
+                    PdfOpenSource.RecentDocument -> "Opened recent PDF ${pendingRequest.displayName}"
+                    PdfOpenSource.Connector -> "Opened ${pendingRequest.displayName} from connector"
+                    PdfOpenSource.SampleSeed -> null
+                },
+            )
+        }
+    }
+
+    fun openPdfFromSafSelection(uriString: String, displayName: String) {
+        openIncomingDocument(
+            PendingPdfOpenRequest(
+                request = OpenDocumentRequest.FromUri(uriString = uriString, displayName = displayName),
+                source = PdfOpenSource.SafPicker,
+                activeUri = uriString,
+                displayName = displayName,
+            ),
+        )
+    }
+
+    fun showUserMessage(message: String) {
+        viewModelScope.launch {
+            localEvents.emit(EditorSessionEvent.UserMessage(message))
+        }
+    }
+
+    fun openRecentDocument(document: RecentDocumentUiState) {
+        val file = File(document.workingCopyPath)
+        if (!file.exists()) {
+            showUserMessage("Recent PDF ${document.displayName} is no longer available")
+            return
+        }
+        openIncomingDocument(
+            PendingPdfOpenRequest(
+                request = OpenDocumentRequest.FromFile(
+                    absolutePath = file.absolutePath,
+                    displayNameOverride = document.displayName,
+                ),
+                source = PdfOpenSource.RecentDocument,
+                activeUri = file.toURI().toString(),
+                displayName = document.displayName,
+            ),
+        )
+    }
 
     fun onActionSelected(action: EditorAction) {
         when (action) {
@@ -1974,20 +2064,48 @@ class EditorViewModel(
         }
     }
 
+    private suspend fun openDocumentRequest(
+        pendingRequest: PendingPdfOpenRequest,
+        userMessage: String? = null,
+        fallbackToSampleOnFailure: Boolean = false,
+    ) {
+        runCatching {
+            session.openDocument(pendingRequest.request)
+            refreshDocumentDependentData()
+            publishOpenDiagnostic(pendingRequest)
+            userMessage?.let { localEvents.emit(EditorSessionEvent.UserMessage(it)) }
+        }.onFailure { error ->
+            if (fallbackToSampleOnFailure && session.state.value.document == null) {
+                runCatching {
+                    val sampleRequest = PendingPdfOpenRequest(
+                        request = appContainer.seedDocumentRequest(),
+                        source = PdfOpenSource.SampleSeed,
+                        activeUri = "asset://sample.pdf",
+                        displayName = "sample.pdf",
+                    )
+                    session.openDocument(sampleRequest.request)
+                    refreshDocumentDependentData()
+                    publishOpenDiagnostic(sampleRequest)
+                }
+            }
+            localEvents.emit(EditorSessionEvent.UserMessage(error.message ?: "Unable to open PDF"))
+        }
+    }
+
     fun openDocumentFromConnector(accountId: String, remotePath: String, displayName: String) {
         viewModelScope.launch {
             runCatching {
                 appContainer.connectorRepository.openDocument(accountId, remotePath, displayName)
             }.onSuccess { request ->
-                session.openDocument(request)
-                refreshThumbnails()
-                refreshFormSupportData()
-                refreshSearchSupportData(forceSync = true)
-                refreshCollaborationData()
-                refreshSecurityData()
-                refreshEnterpriseData()
-                refreshConnectorData()
-                localEvents.emit(EditorSessionEvent.UserMessage("Opened $displayName from connector"))
+                openDocumentRequest(
+                    pendingRequest = PendingPdfOpenRequest(
+                        request = request,
+                        source = PdfOpenSource.Connector,
+                        activeUri = "connector://$accountId/$remotePath",
+                        displayName = displayName,
+                    ),
+                    userMessage = "Opened $displayName from connector",
+                )
             }.onFailure {
                 localEvents.emit(EditorSessionEvent.UserMessage(it.message ?: "Unable to open connector document"))
             }
@@ -2013,6 +2131,32 @@ class EditorViewModel(
             }
             refreshConnectorData()
             localEvents.emit(EditorSessionEvent.UserMessage("Evicted $evicted connector cache file(s)"))
+        }
+    }
+
+    private suspend fun refreshDocumentDependentData() {
+        refreshThumbnails()
+        refreshFormSupportData()
+        refreshSearchSupportData(forceSync = true)
+        refreshCollaborationData()
+        refreshWorkflowData()
+        refreshSecurityData()
+        refreshEnterpriseData()
+        refreshConnectorData()
+        refreshDiagnosticsData()
+        recordActivity(ActivityEventType.Opened, "Opened ${session.state.value.document?.documentRef?.displayName.orEmpty()}")
+        recordSecurityAudit(AuditEventType.DocumentOpened, "Opened document")
+        queueTelemetry("document_opened", mapOf("mode" to enterpriseState.value.authSession.mode.name))
+    }
+
+    private fun publishOpenDiagnostic(pendingRequest: PendingPdfOpenRequest) {
+        lastDocumentOpenDiagnostic.value = buildString {
+            append("activeDocument=")
+            append(pendingRequest.displayName)
+            append(" source=")
+            append(pendingRequest.source.name)
+            append(" uri=")
+            append(pendingRequest.activeUri)
         }
     }
 
@@ -2127,13 +2271,8 @@ class EditorViewModel(
     private fun syncAssistantStateFromRepository() {
         val repositoryState = appContainer.aiAssistantRepository.state.value
         val capabilities = currentAudioCapabilities(repositoryState.settings)
-        val effectiveAvailability = when {
-            !enterpriseState.value.adminPolicy.aiEnabled -> AssistantAvailability(false, "Tenant policy has disabled AI assistance.")
-            entitlements.value.features.contains(FeatureFlag.Ai) || enterpriseState.value.plan == LicensePlan.Premium || enterpriseState.value.plan == LicensePlan.Enterprise -> AssistantAvailability(true)
-            else -> repositoryState.availability
-        }
         assistantState.value = repositoryState.copy(
-            availability = effectiveAvailability,
+            availability = repositoryState.availability,
             audio = assistantAudioState.value.copy(
                 enabled = capabilities.assistantAudioEnabled(),
                 reason = capabilities.assistantAudioReason(),
@@ -2190,6 +2329,7 @@ class EditorViewModel(
 
     private fun currentAudioCapabilities(settings: com.aymanelbanhawy.aiassistant.core.AssistantSettings = assistantState.value.settings) =
         resolveAudioFeatureCapabilities(
+            entitlements = entitlements.value,
             policy = enterpriseState.value.adminPolicy,
             privacySettings = enterpriseState.value.privacySettings,
             assistantSettings = settings,
@@ -2414,6 +2554,13 @@ class EditorViewModel(
 }
 
 private fun Set<Int>.toggle(index: Int): Set<Int> = if (index in this) this - index else this + index
+
+private fun RecentDocumentSummary.toUiState(): RecentDocumentUiState = RecentDocumentUiState(
+    sourceKey = sourceKey,
+    displayName = displayName,
+    sourceType = sourceType,
+    workingCopyPath = workingCopyPath,
+)
 
 private data class ActiveReadAloudSession(
     val title: String,

@@ -4,6 +4,8 @@ import android.content.Context
 import com.aymanelbanhawy.editor.core.data.RecentDocumentDao
 import com.aymanelbanhawy.editor.core.data.RecentDocumentEntity
 import com.aymanelbanhawy.editor.core.enterprise.AiDocumentScopePolicy
+import com.aymanelbanhawy.editor.core.enterprise.AiFeatureAccessResolution
+import com.aymanelbanhawy.editor.core.enterprise.AiFeatureAccessResolver
 import com.aymanelbanhawy.editor.core.enterprise.EnterpriseAdminRepository
 import com.aymanelbanhawy.editor.core.enterprise.EnterpriseAdminStateModel
 import com.aymanelbanhawy.editor.core.enterprise.EntitlementStateModel
@@ -389,14 +391,8 @@ class DefaultAiAssistantRepository(
     }
 
     private fun extractActionItems(text: String): List<String> = text.lines().map { it.trim().removePrefix("- ").removePrefix("* ") }.filter { it.length > 8 }.take(6)
-    private fun resolveAvailability(entitlements: EntitlementStateModel, enterpriseState: EnterpriseAdminStateModel): AssistantAvailability {
-        val hasAiEntitlement = entitlements.features.contains(FeatureFlag.Ai) ||
-            enterpriseState.plan == com.aymanelbanhawy.editor.core.enterprise.LicensePlan.Premium ||
-            enterpriseState.plan == com.aymanelbanhawy.editor.core.enterprise.LicensePlan.Enterprise
-        if (!hasAiEntitlement) return AssistantAvailability(false, "AI features are not included in the current plan.", setOf(FeatureFlag.Ai))
-        if (!enterpriseState.adminPolicy.aiEnabled) return AssistantAvailability(false, "Tenant policy has disabled AI assistance.")
-        return AssistantAvailability(true)
-    }
+    private fun resolveAvailability(entitlements: EntitlementStateModel, enterpriseState: EnterpriseAdminStateModel): AssistantAvailability =
+        resolveAssistantAvailability(entitlements, enterpriseState)
 
     private fun workspacePolicyFor(enterpriseState: EnterpriseAdminStateModel): AssistantWorkspacePolicy = AssistantWorkspacePolicy(
         localOnlyMultiDocumentMode = enterpriseState.privacySettings.localOnlyMode || !enterpriseState.adminPolicy.allowCloudAiProviders,
@@ -452,6 +448,27 @@ class DefaultAiAssistantRepository(
             return DefaultAiAssistantRepository(documentSearchService, documentRepository, recentDocumentDao, store, workspaceStore, runtime).also { it.initialize() }
         }
         private val sensitiveTerms = listOf("ssn", "social security", "passport", "confidential", "bank", "account")
+    }
+}
+
+internal fun resolveAssistantAvailability(
+    entitlements: EntitlementStateModel,
+    enterpriseState: EnterpriseAdminStateModel,
+): AssistantAvailability {
+    val resolution = AiFeatureAccessResolver.resolve(entitlements, enterpriseState.adminPolicy)
+    return resolution.toAssistantAvailability()
+}
+
+private fun AiFeatureAccessResolution.toAssistantAvailability(): AssistantAvailability {
+    val reason = unavailableReason()
+    return if (reason == null) {
+        AssistantAvailability(true)
+    } else {
+        AssistantAvailability(
+            enabled = false,
+            reason = reason,
+            missingFeatures = if (!entitled) setOf(FeatureFlag.Ai) else emptySet(),
+        )
     }
 }
 

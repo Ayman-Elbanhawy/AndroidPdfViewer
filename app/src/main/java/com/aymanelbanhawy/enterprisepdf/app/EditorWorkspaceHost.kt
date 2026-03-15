@@ -1,5 +1,6 @@
 package com.aymanelbanhawy.enterprisepdf.app
 
+import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -8,6 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import com.aymanelbanhawy.editor.core.session.EditorSessionEvent
 import com.aymanelbanhawy.editor.core.workflow.PdfOptimizationPreset
 import com.aymanelbanhawy.enterprisepdf.app.editor.EditorScreenRoute
@@ -15,6 +17,7 @@ import com.aymanelbanhawy.enterprisepdf.app.editor.EditorScreenCallbacks
 import com.aymanelbanhawy.enterprisepdf.app.editor.EditorUiState
 import com.aymanelbanhawy.enterprisepdf.app.editor.EditorViewModel
 import com.aymanelbanhawy.enterprisepdf.app.editor.EditorWorkflowExportActions
+import com.aymanelbanhawy.enterprisepdf.app.open.PdfOpenIntentResolver
 
 @Composable
 fun EditorWorkspaceHost(
@@ -23,6 +26,18 @@ fun EditorWorkspaceHost(
     onShareDocument: (EditorSessionEvent.ShareDocument) -> Unit,
     onShareText: (EditorSessionEvent.ShareText) -> Unit,
 ) {
+    val context = LocalContext.current
+    // Basic PDF open stays on the Android Storage Access Framework so Google Drive,
+    // Downloads, Documents, and on-device providers all appear through one picker.
+    val openPdfLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        persistReadPermission(context, uri)
+        val request = PdfOpenIntentResolver.resolveSafSelection(context, uri)
+        if (request != null) {
+            viewModel.openIncomingDocument(request)
+        } else if (uri != null) {
+            viewModel.showUserMessage("The selected file is not a readable PDF")
+        }
+    }
     val mergeLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris: List<Uri> ->
         viewModel.mergeDocuments(uris)
     }
@@ -57,6 +72,8 @@ fun EditorWorkspaceHost(
         onShareDocument = onShareDocument,
         onShareText = onShareText,
         workflowExportActions = workflowExportActions,
+        onOpenPdf = { openPdfLauncher.launch(arrayOf("application/pdf")) },
+        onOpenFromFiles = { openPdfLauncher.launch(arrayOf("application/pdf")) },
         onImportProfile = { profileLauncher.launch("application/json") },
         onAddImage = { editImageLauncher.launch("image/*") },
         onReplaceSelectedImage = { replaceEditImageLauncher.launch("image/*") },
@@ -129,6 +146,8 @@ private fun rememberEditorScreenCallbacks(
     onShareDocument: (EditorSessionEvent.ShareDocument) -> Unit,
     onShareText: (EditorSessionEvent.ShareText) -> Unit,
     workflowExportActions: EditorWorkflowExportActions,
+    onOpenPdf: () -> Unit,
+    onOpenFromFiles: () -> Unit,
     onImportProfile: () -> Unit,
     onAddImage: () -> Unit,
     onReplaceSelectedImage: () -> Unit,
@@ -159,6 +178,9 @@ private fun rememberEditorScreenCallbacks(
     onSaveFormProfile = viewModel::saveFormProfile,
     onApplyFormProfile = viewModel::applyFormProfile,
     onExportFormData = viewModel::exportCurrentFormData,
+    onOpenPdf = onOpenPdf,
+    onOpenFromFiles = onOpenFromFiles,
+    onOpenRecentDocument = viewModel::openRecentDocument,
     onImportProfile = onImportProfile,
     onOpenSignatureCapture = viewModel::openSignatureCapture,
     onApplySavedSignature = viewModel::applySavedSignature,
@@ -299,5 +321,15 @@ private fun rememberEditorScreenCallbacks(
     onShareRequested = onShareDocument,
     onShareTextRequested = onShareText,
 )
+
+private fun persistReadPermission(context: android.content.Context, uri: Uri?) {
+    if (uri == null) return
+    runCatching {
+        context.contentResolver.takePersistableUriPermission(
+            uri,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION,
+        )
+    }
+}
 
 

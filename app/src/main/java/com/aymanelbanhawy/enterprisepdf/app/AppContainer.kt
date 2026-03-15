@@ -25,6 +25,8 @@ import com.aymanelbanhawy.enterprisepdf.app.audio.VoiceCommentRuntime
 import com.aymanelbanhawy.enterprisepdf.app.migration.AppMigrationCoordinator
 import com.aymanelbanhawy.enterprisepdf.app.migration.DefaultAppMigrationCoordinator
 import com.aymanelbanhawy.enterprisepdf.app.release.AppRuntimeConfig
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 
 class AppContainer(
@@ -67,7 +69,29 @@ class AppContainer(
 
     fun createSession(): EditorSession = editorCoreContainer.newSession()
 
+    fun observeRecentDocuments(limit: Int = 6): Flow<List<RecentDocumentSummary>> {
+        return editorCoreContainer.recentDocumentDao()
+            .observeRecent(limit)
+            .map { documents ->
+                documents.map { document ->
+                    RecentDocumentSummary(
+                        sourceKey = document.sourceKey,
+                        displayName = document.displayName,
+                        sourceType = document.sourceType,
+                        workingCopyPath = document.workingCopyPath,
+                    )
+                }
+            }
+    }
+
     fun seedDocumentRequest(): OpenDocumentRequest {
         return OpenDocumentRequest.FromAsset(assetName = "sample.pdf", displayName = "sample.pdf")
     }
 }
+
+data class RecentDocumentSummary(
+    val sourceKey: String,
+    val displayName: String,
+    val sourceType: String,
+    val workingCopyPath: String,
+)

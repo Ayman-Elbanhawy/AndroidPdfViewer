@@ -19,13 +19,19 @@ jobs:
       - name: Production source grep gate
         run: |
           grep -RIn "Fake[A-Za-z0-9_]*\|NoOp[A-Za-z0-9_]*\|InMemory[A-Za-z0-9_]*\|Placeholder[A-Za-z0-9_]*\|TODO\|example.invalid" ai-assistant/src/main app/src/main editor-core/src/main android-pdf-viewer/src/main && exit 1 || true
+          grep -RIn "FeatureFlag\.Ai\|aiEnabled\|LicensePlan\.Premium\|LicensePlan\.Enterprise" ai-assistant/src/main editor-core/src/main app/src/main
           grep -RIn "SpeechRecognizer\|TextToSpeech\|MediaRecorder\|voice\|playback\|audio" ai-assistant/src/main app/src/main editor-core/src/main
           grep -RIn "policy\|retention\|interrupt\|permission" ai-assistant/src/main app/src/main editor-core/src/main
           grep -RIn "pageedits\\.json\|sidecar" ai-assistant/src/main app/src/main editor-core/src/main android-pdf-viewer/src/main && exit 1 || true
           grep -RIn "contentDescription\|semantics\|TalkBack\|theme\|colorScheme\|icon\|contrast\|reading mode" app/src/main app/src/androidTest app/src/test || true
           grep -RIn "snapshot\|screenshot\|accessibility\|visual" .github/workflows app scripts docs || true
           grep -RIn "zPDF\|pdf-editor-android-app\|MIT" docs app/src/main .github || true
+          grep -RIn "ACTION_VIEW\|ACTION_SEND\|onNewIntent\|intent.data" app/src/main
+          grep -RIn "OpenDocument\|GetContent\|OpenDocumentTree\|Storage Access Framework\|profileLauncher\|File/Open\|Open PDF\|Open from Files" app/src/main
+          grep -RIn "Google Drive\|Downloads\|Documents" app/src/main docs || true
+          git grep -nE "com\\.google\\.android\\.apps\\.docs|com\\.microsoft\\.skydrive|com\\.box\\.android" -- app/src/main/java && exit 1 || true
           grep -RIn "validateReleaseReadiness\|smoke\|benchmark\|migration" .github/workflows app build.gradle* scripts docs || true
+          git grep -nE "LicensePlan\.Premium|LicensePlan\.Enterprise" -- ai-assistant/src/main/java/com/aymanelbanhawy/aiassistant/core app/src/main/java/com/aymanelbanhawy/enterprisepdf/app/editor app/src/main/java/com/aymanelbanhawy/enterprisepdf/app/audio && exit 1 || true
           git grep -nE "legacyCompatibilityMigrated|LEGACY_COMPATIBILITY_SUFFIX|pageedits\\.json|sidecar|\\.annotations\\.json" -- editor-core/src/main/java/com/aymanelbanhawy/editor/core/write editor-core/src/main/java/com/aymanelbanhawy/editor/core/repository app/src/main android-pdf-viewer/src/main && exit 1 || true
           git grep -nE "legacyCompatibilityMigrated|LEGACY_COMPATIBILITY_SUFFIX|pageedits\\.json|sidecar|\\.annotations\\.json" -- editor-core/src/main/java/com/aymanelbanhawy/editor/core/migration editor-core/src/main/java/com/aymanelbanhawy/editor/core/compat || true
       - name: Release readiness precheck
@@ -41,7 +47,7 @@ jobs:
       - name: Targeted migration and upgrade safety tests
         run: ./gradlew :editor-core:test --tests "*DefaultCoreMigrationRepositoryTest" --tests "*PdfWriteEnginePersistenceTest" --tests "*AiProviderNormalizationTest"
       - name: Targeted AI audio and voice comment tests
-        run: ./gradlew :ai-assistant:test --tests "*ProviderSelectionEngineTest" --tests "*ProviderRuntimeErrorHandlingTest" --tests "*MultiDocumentGroundingTest" --tests "*AssistantAudioStateTransitionsTest" :editor-core:test --tests "*DefaultCollaborationRepositorySyncTest" :app:testProdDebugUnitTest --tests "*AudioFeatureEvidenceBundleTest"
+        run: ./gradlew :ai-assistant:test --tests "*ProviderSelectionEngineTest" --tests "*ProviderRuntimeErrorHandlingTest" --tests "*MultiDocumentGroundingTest" --tests "*AssistantAudioStateTransitionsTest" --tests "*AssistantAvailabilityResolutionTest" :editor-core:test --tests "*DefaultCollaborationRepositorySyncTest" --tests "*AiFeatureAccessResolverTest" :app:testProdDebugUnitTest --tests "*AudioFeatureEvidenceBundleTest"
       - name: Screenshot and accessibility evidence build
         run: ./gradlew :app:assembleProdDebugAndroidTest
       - name: Source inspiration evidence build
@@ -82,7 +88,7 @@ jobs:
           api-level: 35
           arch: x86_64
           profile: pixel_7
-          script: ./gradlew :app:connectedProdDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.aymanelbanhawy.enterprisepdf.app.assistant.AssistantProviderSettingsTest,com.aymanelbanhawy.enterprisepdf.app.collaboration.CollaborationReviewFlowTest,com.aymanelbanhawy.enterprisepdf.app.scan.OcrScanImportFlowTest,com.aymanelbanhawy.enterprisepdf.app.visual.VisualSnapshotTest,com.aymanelbanhawy.enterprisepdf.app.quicktools.QuickToolsInstrumentationTest,com.aymanelbanhawy.enterprisepdf.app.editor.EditorScreenTest
+          script: ./gradlew :app:connectedProdDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.aymanelbanhawy.enterprisepdf.app.assistant.AssistantProviderSettingsTest,com.aymanelbanhawy.enterprisepdf.app.enterprise.SettingsAdminSidebarTest,com.aymanelbanhawy.enterprisepdf.app.collaboration.CollaborationReviewFlowTest,com.aymanelbanhawy.enterprisepdf.app.scan.OcrScanImportFlowTest,com.aymanelbanhawy.enterprisepdf.app.visual.VisualSnapshotTest,com.aymanelbanhawy.enterprisepdf.app.quicktools.QuickToolsInstrumentationTest,com.aymanelbanhawy.enterprisepdf.app.editor.EditorScreenTest,com.aymanelbanhawy.enterprisepdf.app.open.PdfOpenFlowTest
       - name: Run prod debug smoke and benchmark tests
         uses: reactivecircus/android-emulator-runner@v2
         with:

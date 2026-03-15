@@ -11,6 +11,9 @@ import com.aymanelbanhawy.aiassistant.core.reduceReadAloudEvent
 import com.aymanelbanhawy.aiassistant.core.reduceVoiceCaptureEvent
 import com.aymanelbanhawy.editor.core.collaboration.VoiceCommentAttachmentModel
 import com.aymanelbanhawy.editor.core.enterprise.AdminPolicyModel
+import com.aymanelbanhawy.editor.core.enterprise.EntitlementStateModel
+import com.aymanelbanhawy.editor.core.enterprise.FeatureFlag
+import com.aymanelbanhawy.editor.core.enterprise.LicensePlan
 import com.aymanelbanhawy.editor.core.enterprise.PrivacySettingsModel
 import com.google.common.truth.Truth.assertThat
 import java.io.File
@@ -22,6 +25,7 @@ import org.junit.Test
 
 class AudioFeatureEvidenceBundleTest {
     private val json = Json { prettyPrint = true; encodeDefaults = true }
+    private val aiEntitlements = EntitlementStateModel(LicensePlan.Enterprise, setOf(FeatureFlag.Ai))
 
     @Test
     fun policyIndependentlyControlsCloudAiVoiceInputSpeechOutputAndVoiceComments() {
@@ -32,6 +36,7 @@ class AudioFeatureEvidenceBundleTest {
         )
 
         val base = resolveAudioFeatureCapabilities(
+            entitlements = aiEntitlements,
             policy = AdminPolicyModel(
                 aiEnabled = true,
                 audioFeaturesEnabled = true,
@@ -44,6 +49,7 @@ class AudioFeatureEvidenceBundleTest {
             assistantSettings = assistantSettings,
         )
         val localOnly = resolveAudioFeatureCapabilities(
+            entitlements = aiEntitlements,
             policy = AdminPolicyModel(
                 aiEnabled = true,
                 audioFeaturesEnabled = true,
@@ -56,6 +62,7 @@ class AudioFeatureEvidenceBundleTest {
             assistantSettings = assistantSettings,
         )
         val voiceInputBlocked = resolveAudioFeatureCapabilities(
+            entitlements = aiEntitlements,
             policy = AdminPolicyModel(
                 aiEnabled = true,
                 audioFeaturesEnabled = true,
@@ -67,6 +74,7 @@ class AudioFeatureEvidenceBundleTest {
             assistantSettings = assistantSettings,
         )
         val speechOutputBlocked = resolveAudioFeatureCapabilities(
+            entitlements = aiEntitlements,
             policy = AdminPolicyModel(
                 aiEnabled = true,
                 audioFeaturesEnabled = true,
@@ -78,6 +86,7 @@ class AudioFeatureEvidenceBundleTest {
             assistantSettings = assistantSettings,
         )
         val voiceCommentsBlocked = resolveAudioFeatureCapabilities(
+            entitlements = aiEntitlements,
             policy = AdminPolicyModel(
                 aiEnabled = true,
                 audioFeaturesEnabled = true,
@@ -120,11 +129,17 @@ class AudioFeatureEvidenceBundleTest {
             readAloudEnabled = true,
             voicePromptCaptureEnabled = true,
         )
-        val grantedCapabilities = resolveAudioFeatureCapabilities(basePolicy, PrivacySettingsModel(), settings)
         val deniedCapabilities = resolveAudioFeatureCapabilities(
-            basePolicy.copy(voiceInputEnabled = false),
-            PrivacySettingsModel(),
-            settings,
+            entitlements = aiEntitlements,
+            policy = basePolicy.copy(voiceInputEnabled = false),
+            privacySettings = PrivacySettingsModel(),
+            assistantSettings = settings,
+        )
+        val grantedCapabilities = resolveAudioFeatureCapabilities(
+            entitlements = aiEntitlements,
+            policy = basePolicy,
+            privacySettings = PrivacySettingsModel(),
+            assistantSettings = settings,
         )
 
         var audioState = AssistantAudioUiState()
@@ -275,6 +290,30 @@ class AudioFeatureEvidenceBundleTest {
         assertThat(File(outputDirectory, "logs/audio-state-log.json").exists()).isTrue()
         assertThat(manifestFile.readText()).contains("microphone_permission_granted")
         assertThat(File(outputDirectory, "logs/audio-state-log.json").readText()).contains("Playback paused for interruption")
+    }
+
+    @Test
+    fun noAiEntitlementKeepsAssistantAudioUnavailableEvenWhenPolicyIsEnabled() {
+        val capabilities = resolveAudioFeatureCapabilities(
+            entitlements = EntitlementStateModel(LicensePlan.Premium, emptySet()),
+            policy = AdminPolicyModel(
+                aiEnabled = true,
+                audioFeaturesEnabled = true,
+                voiceInputEnabled = true,
+                speechOutputEnabled = true,
+            ),
+            privacySettings = PrivacySettingsModel(),
+            assistantSettings = AssistantSettings(
+                spokenResponsesEnabled = true,
+                readAloudEnabled = true,
+                voicePromptCaptureEnabled = true,
+            ),
+        )
+
+        assertThat(capabilities.aiAvailable).isFalse()
+        assertThat(capabilities.voicePromptCaptureAllowed).isFalse()
+        assertThat(capabilities.spokenAssistantResponsesAllowed).isFalse()
+        assertThat(capabilities.voicePromptReason()).isEqualTo("AI is not included in the current plan.")
     }
 
     private fun resolveAudioEvidenceRoot(): File {

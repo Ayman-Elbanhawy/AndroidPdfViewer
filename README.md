@@ -100,6 +100,19 @@ The repo is no longer only a viewer widget project. It now contains a modular mo
 - Conflict-aware remote metadata handling with etag/checksum, modified time, and version id
 - Secure temp/cache lifecycle and DLP-aware destination filtering
 
+### PDF open and SAF file access
+- Proper Android `ACTION_VIEW` PDF open-with support in `MainActivity`
+- `ACTION_SEND` PDF stream intake for shared files
+- Single-document PDF opening through the Android Storage Access Framework system picker
+- Clear top-level file actions:
+  - `Open PDF`
+  - `Open from Files`
+  - `Open Recent`
+- Real PDF opens replace the seeded sample document instead of being overwritten later in initialization
+- Recent PDF reopen support backed by existing Room recent-document state
+- PDF open is intentionally separate from form-profile import, which remains JSON-only
+- The primary file-open flow uses SAF so Google Drive, Downloads, Documents, Files providers, and on-device storage all appear through one consistent Android picker instead of custom provider integrations
+
 ### Premium mobile UI and accessibility
 - Premium Compose design system with upgraded light and dark themes
 - Stronger icon contrast, larger touch targets, clearer hierarchy, and consistent icon sizing
@@ -210,6 +223,7 @@ Current verification status from the latest local pass:
 - `:app:lintProdDebug :app:assembleProdDebug :app:testProdDebugUnitTest` passes
 - `:app:connectedProdDebugAndroidTest` passes on the current local emulator run
 - `:app:releaseReadinessEvidence` passes and publishes the current visual, audio, write-engine, workflow, and source-inspiration proof bundles
+- `ACTION_VIEW` / `ACTION_SEND` PDF intake, SAF `Open PDF`, recent reopen, and sample-replacement regressions are covered by the current app instrumentation suite on the supported API 35 emulator lane
 
 ## Current AI and Search Updates
 
@@ -229,6 +243,11 @@ Relevant files:
 - `editor-core/src/main/java/com/aymanelbanhawy/editor/core/search/DefaultDocumentSearchService.kt`
 - `editor-core/src/main/java/com/aymanelbanhawy/editor/core/search/RoomSearchIndexStore.kt`
 - `editor-core/src/main/java/com/aymanelbanhawy/editor/core/search/EmbeddedTextRecoveryRuntime.kt`
+
+Final AI entitlement rule:
+- `FeatureFlag.Ai` grants AI inclusion
+- admin policy may restrict AI with `aiEnabled = false`
+- admin policy may not grant AI when the entitlement is absent
 
 ## Known Bugs
 
@@ -251,6 +270,12 @@ These are the current bugs or open issues we still know about in the repo:
 
 6. Source-inspiration reporting is accurate for the current pass, but it should be kept current as new inspiration-driven UX work lands.
    - Any future direct reuse under MIT would need explicit file-level attribution and manifest updates.
+
+7. The PDF-open instrumentation suite is skipped on API 36 emulator images.
+   - The actual PDF open flow is implemented for `ACTION_VIEW`, `ACTION_SEND`, and SAF picker opens, but the automation class is currently restricted to API 35 and below because the Android 16 / API 36 emulator still hits the repo’s known Compose/Espresso `InputManager.getInstance` regression.
+
+8. Folder browsing is still intentionally separate from normal PDF open.
+   - The primary supported open path is the SAF single-document picker. A dedicated folder browser has not been added in this pass, which avoids replacing the standard PDF-open experience with a tree-only workflow.
 
 ## Task 65 Additions
 

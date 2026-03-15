@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import com.aymanelbanhawy.editor.core.connectors.ConnectorAccountDraft
 import com.aymanelbanhawy.editor.core.connectors.ConnectorAccountModel
 import com.aymanelbanhawy.editor.core.connectors.ConnectorTransferJobModel
+import com.aymanelbanhawy.editor.core.enterprise.AiFeatureAccessResolver
 import com.aymanelbanhawy.editor.core.enterprise.AdminPolicyModel
 import com.aymanelbanhawy.editor.core.enterprise.EnterpriseAdminStateModel
 import com.aymanelbanhawy.editor.core.enterprise.EnterpriseBootstrapMode
@@ -80,6 +81,9 @@ fun SettingsAdminSidebar(
     var tenantBaseUrl by remember(state.tenantConfiguration.apiBaseUrl) { mutableStateOf(state.tenantConfiguration.apiBaseUrl) }
     var issuerBaseUrl by remember(state.tenantConfiguration.issuerBaseUrl) { mutableStateOf(state.tenantConfiguration.issuerBaseUrl) }
     var remoteBootstrap by remember(state.tenantConfiguration.bootstrapMode) { mutableStateOf(state.tenantConfiguration.bootstrapMode == EnterpriseBootstrapMode.Remote) }
+    val aiAccess = remember(entitlements, state.adminPolicy.aiEnabled) {
+        AiFeatureAccessResolver.resolve(entitlements, state.adminPolicy)
+    }
 
     Surface(
         modifier = modifier
@@ -177,7 +181,18 @@ fun SettingsAdminSidebar(
                         ToggleRow("Restrict export", state.adminPolicy.restrictExport) { onUpdatePolicy(state.adminPolicy.copy(restrictExport = it)) }
                         ToggleRow("Restrict print", state.adminPolicy.restrictPrint) { onUpdatePolicy(state.adminPolicy.copy(restrictPrint = it)) }
                         ToggleRow("Restrict copy", state.adminPolicy.restrictCopy) { onUpdatePolicy(state.adminPolicy.copy(restrictCopy = it)) }
-                        ToggleRow("AI enabled", state.adminPolicy.aiEnabled) { onUpdatePolicy(state.adminPolicy.copy(aiEnabled = it)) }
+                        ToggleRow(
+                            label = "AI enabled",
+                            checked = state.adminPolicy.aiEnabled,
+                            enabled = aiAccess.entitled,
+                            switchTestTag = "settings-admin-ai-enabled-switch",
+                        ) { onUpdatePolicy(state.adminPolicy.copy(aiEnabled = it)) }
+                        Text(
+                            text = aiAccess.adminControlMessage(),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (aiAccess.entitled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+                            modifier = Modifier.testTag("settings-admin-ai-enabled-message"),
+                        )
                         ToggleRow("Audio features enabled", state.adminPolicy.audioFeaturesEnabled) { onUpdatePolicy(state.adminPolicy.copy(audioFeaturesEnabled = it)) }
                         ToggleRow("Voice input enabled", state.adminPolicy.voiceInputEnabled) { onUpdatePolicy(state.adminPolicy.copy(voiceInputEnabled = it)) }
                         ToggleRow("Speech output enabled", state.adminPolicy.speechOutputEnabled) { onUpdatePolicy(state.adminPolicy.copy(speechOutputEnabled = it)) }
@@ -224,10 +239,21 @@ fun SettingsAdminSidebar(
 }
 
 @Composable
-private fun ToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+private fun ToggleRow(
+    label: String,
+    checked: Boolean,
+    enabled: Boolean = true,
+    switchTestTag: String? = null,
+    onCheckedChange: (Boolean) -> Unit,
+) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(label)
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            enabled = enabled,
+            modifier = if (switchTestTag != null) Modifier.testTag(switchTestTag) else Modifier,
+        )
     }
 }
 
